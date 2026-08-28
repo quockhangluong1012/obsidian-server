@@ -16,6 +16,8 @@ public class AppDbContext : DbContext
         b.Entity<Folder>(e =>
         {
             e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.Property(x => x.ParentId).HasMaxLength(64);
             e.Property(x => x.Name).IsRequired().HasMaxLength(450);
             e.HasIndex(x => new { x.ParentId, x.Name }).IsUnique();
             e.HasOne(x => x.Parent).WithMany(x => x.Children).HasForeignKey(x => x.ParentId).OnDelete(DeleteBehavior.Restrict);
@@ -43,9 +45,9 @@ public class AppDbContext : DbContext
         });
     }
 
-    public async Task EnsureCreatedAndSeedAsync()
+    public async Task MigrateAndSeedAsync()
     {
-        await Database.EnsureCreatedAsync();
+        await Database.MigrateAsync();
 
         // SQL Server Full-Text Search: enable on DB + create catalog/index over Notes(Title, Content)
         // Safe to re-run; check existence first to avoid SQL errors.

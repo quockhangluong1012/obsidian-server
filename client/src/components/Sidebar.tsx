@@ -325,7 +325,7 @@ function buildRows(s: VaultState, hoveredId: string | null, setHoveredId: (id: s
             {isFolder
               ? (open ? 'folder_open' : 'folder')
               : isAsset
-                ? (/svg/.test(assetMime) ? 'shapes' : 'image')
+                ? (/svg/.test(assetMime) ? 'shapes' : /^image\//.test(assetMime) ? 'image' : /json|text/.test(assetMime) ? 'code' : 'draft')
                 : 'description'}
           </span>
           <span className="overflow-hidden text-ellipsis whitespace-nowrap">{n.name}</span>

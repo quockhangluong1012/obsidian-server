@@ -11,7 +11,8 @@ public class AttachmentService(AppDbContext db, IWebHostEnvironment env, IConfig
 
     private static readonly HashSet<string> AllowedMime = new(StringComparer.OrdinalIgnoreCase)
     {
-        "image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif", "image/svg+xml"
+        "image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif", "image/svg+xml",
+        "application/json", "text/plain", "text/markdown", "text/csv"
     };
 
     public string GetAbsolutePath(Attachment a) => Path.Combine(AbsoluteRoot, a.StoragePath.Replace('/', Path.DirectorySeparatorChar));
@@ -62,6 +63,10 @@ public class AttachmentService(AppDbContext db, IWebHostEnvironment env, IConfig
                 ".webp" => "image/webp",
                 ".gif" => "image/gif",
                 ".svg" => "image/svg+xml",
+                ".json" => "application/json",
+                ".txt" => "text/plain",
+                ".md" => "text/markdown",
+                ".csv" => "text/csv",
                 _ => throw new InvalidOperationException($"Loại file không hỗ trợ: {mime}")
             };
         }
@@ -76,7 +81,18 @@ public class AttachmentService(AppDbContext db, IWebHostEnvironment env, IConfig
         var id = Guid.NewGuid().ToString();
         var ext2 = Path.GetExtension(file.FileName);
         if (string.IsNullOrEmpty(ext2))
-            ext2 = mime == "image/png" ? ".png" : mime == "image/jpeg" ? ".jpg" : mime == "image/webp" ? ".webp" : mime == "image/gif" ? ".gif" : ".svg";
+            ext2 = mime switch
+            {
+                "image/png" => ".png",
+                "image/jpeg" => ".jpg",
+                "image/webp" => ".webp",
+                "image/gif" => ".gif",
+                "application/json" => ".json",
+                "text/plain" => ".txt",
+                "text/markdown" => ".md",
+                "text/csv" => ".csv",
+                _ => ".svg",
+            };
         var now = DateTime.UtcNow;
         var rel = $"{now:yyyy}/{now:MM}/{id}{ext2}";
         var abs = Path.Combine(AbsoluteRoot, rel.Replace('/', Path.DirectorySeparatorChar));

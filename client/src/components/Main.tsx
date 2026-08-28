@@ -1,8 +1,11 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useMemo } from 'react'
 import { useVault, getChildrenLive } from '../store/useVault'
 import type { VaultState } from '../store/useVault'
 import { MD } from '../mock/data'
 import { useViewport } from '../hooks/useViewport'
+import { renderMarkdown } from '../lib/markdown'
+
+const TEXT_ATTACHMENT_MIME = new Set(['application/json', 'text/plain', 'text/markdown', 'text/csv'])
 
 function pathTo(id: string, s: VaultState): string[] {
   const out: string[] = []
@@ -406,16 +409,19 @@ function handlePasteApi(
     const dt = e.clipboardData
     if (!dt) return
     const items = Array.from(dt.items || [])
-    const fileItem = items.find((it) => it.kind === 'file' && /^image\//.test(it.type))
+    const pastableMime = (t: string) => /^image\//.test(t) || TEXT_ATTACHMENT_MIME.has(t)
+    const fileItem = items.find((it) => it.kind === 'file' && pastableMime(it.type))
     if (fileItem) {
       const file = fileItem.getAsFile()
       if (!file) return
+      const isImage = /^image\//.test(file.type)
       e.preventDefault()
       try {
         const att: any = await (s as any).uploadFile(file, curId)
         const url = att?.url || att?.path || `/api/files/${att?.id}`
-        insertSnippetWithUrl(s, mdRef, `\n\n![](${url})\n`)
+        insertSnippetWithUrl(s, mdRef, isImage ? `\n\n![](${url})\n` : `\n\n[${file.name}](${url})\n`)
       } catch {
+        if (!isImage) return // no meaningful offline preview for non-image attachments
         // fallback to local
         const reader = new FileReader()
         reader.onload = () => {
@@ -518,31 +524,13 @@ function insertSnippet(
 }
 
 function NotePreview({ md, pastedFigs }: { md: string; pastedFigs: { name: string; url: string; path: string; folder: string }[] }) {
-  // naive markdown preview: render markdown text with image urls preserved
-  // For real rendering, replace with marked+DOMPurify if desired.
-  // Here we do simple line breaks and show images via pastedFigs.
-  const lines = md.split('\n')
+  const html = useMemo(() => renderMarkdown(md), [md])
   return (
-    <article className="font-display max-w-[760px] mx-auto px-5 md:px-10 py-6 md:py-12 pb-32 text-[17px] leading-[1.7] whitespace-pre-wrap break-words">
-      {lines.map((line, i) => {
-        // detect markdown image: ![](url)
-        const imgMatch = line.match(/!\[.*?\]\((\/api\/files\/[^)]+)\)/)
-        if (imgMatch) {
-          const url = imgMatch[1]
-          return (
-            <figure key={i} className="my-4">
-              <img src={url} alt="" className="block max-w-full w-auto h-auto rounded-lg border border-[var(--bd)] bg-[var(--surf)]" />
-            </figure>
-          )
-        }
-        // headings
-        if (line.startsWith('# ')) return <h1 key={i} className="text-[28px] font-bold mt-6 mb-3">{line.slice(2)}</h1>
-        if (line.startsWith('## ')) return <h2 key={i} className="text-[22px] font-bold mt-5 mb-2">{line.slice(3)}</h2>
-        if (line.startsWith('### ')) return <h3 key={i} className="text-[18px] font-bold mt-4 mb-2">{line.slice(4)}</h3>
-        if (line.startsWith('> ')) return <blockquote key={i} className="my-3 p-3 px-[18px] border-l-[3px] border-[var(--pri)] rounded-r-lg bg-[var(--surf)]">{line.slice(2)}</blockquote>
-        if (!line.trim()) return <div key={i} className="h-3" />
-        return <p key={i} className="my-2">{line}</p>
-      })}
+    <div className="max-w-[760px] mx-auto px-5 md:px-10 py-6 md:py-12 pb-32">
+      <article
+        className="font-display md-body text-[17px] leading-[1.7]"
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
       {pastedFigs.map((fg, i) => (
         <figure key={'fig'+i} className="m-0 mb-6 mt-4">
           <img alt={fg.name} src={fg.url} className="block max-w-full w-auto h-auto rounded-lg border border-[var(--bd)] bg-[var(--surf)]" />
@@ -552,7 +540,7 @@ function NotePreview({ md, pastedFigs }: { md: string; pastedFigs: { name: strin
           </figcaption>
         </figure>
       ))}
-    </article>
+    </div>
   )
 }
 

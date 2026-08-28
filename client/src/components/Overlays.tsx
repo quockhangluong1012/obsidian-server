@@ -1,7 +1,82 @@
+import { useEffect, useState } from 'react'
 import { useVault, folderOptionsLive, getChildrenLive } from '../store/useVault'
-import type { VaultState } from '../store/useVault'
+import type { VaultState, Asset } from '../store/useVault'
 import { FLAT } from '../mock/data'
 import { useViewport } from '../hooks/useViewport'
+
+const TEXT_MIME = new Set(['application/json', 'text/plain', 'text/markdown', 'text/csv'])
+
+function AssetPreview({ asset }: { asset: Asset }) {
+  const isImage = /^image\//.test(asset.mime)
+  const isText = TEXT_MIME.has(asset.mime)
+  const [imgFailed, setImgFailed] = useState(false)
+  const [text, setText] = useState<string | null>(null)
+  const [textError, setTextError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setImgFailed(false)
+    setText(null)
+    setTextError(null)
+    if (!isText) return
+    let cancelled = false
+    fetch(asset.url)
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.text()
+      })
+      .then((body) => {
+        if (cancelled) return
+        if (asset.mime === 'application/json') {
+          try { body = JSON.stringify(JSON.parse(body), null, 2) } catch { /* leave as-is if not valid JSON */ }
+        }
+        setText(body)
+      })
+      .catch((e) => { if (!cancelled) setTextError(e.message || 'Không tải được nội dung') })
+    return () => { cancelled = true }
+  }, [asset.url, asset.mime, isText])
+
+  if (isImage && !imgFailed) {
+    return (
+      <div className="rounded-[10px] border border-[var(--bd)] bg-[var(--surf)] p-3 grid place-items-center">
+        <img
+          alt={asset.name}
+          src={asset.url}
+          onError={() => setImgFailed(true)}
+          className="max-w-full max-h-[60dvh] md:max-h-[42dvh] h-auto block"
+        />
+      </div>
+    )
+  }
+  if (isImage && imgFailed) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-2 rounded-[10px] border border-dashed border-[var(--bd)] bg-[var(--surf)] p-8 text-center text-[var(--tx2)]">
+        <span className="material-symbols-rounded text-[28px] opacity-70">broken_image</span>
+        <span className="text-[13px]">Không tải được ảnh — kiểm tra server hoặc đường dẫn tệp.</span>
+      </div>
+    )
+  }
+  if (isText) {
+    if (textError) {
+      return (
+        <div className="flex flex-col items-center justify-center gap-2 rounded-[10px] border border-dashed border-[var(--bd)] bg-[var(--surf)] p-8 text-center text-[var(--tx2)]">
+          <span className="material-symbols-rounded text-[28px] opacity-70">error</span>
+          <span className="text-[13px]">Không tải được nội dung: {textError}</span>
+        </div>
+      )
+    }
+    return (
+      <pre className="max-h-[60dvh] md:max-h-[42dvh] overflow-auto rounded-[10px] border border-[var(--bd)] bg-[var(--code)] p-3.5 font-mono text-[12.5px] leading-[1.6] whitespace-pre-wrap break-words">
+        {text ?? 'Đang tải…'}
+      </pre>
+    )
+  }
+  return (
+    <div className="flex flex-col items-center justify-center gap-2 rounded-[10px] border border-dashed border-[var(--bd)] bg-[var(--surf)] p-8 text-center text-[var(--tx2)]">
+      <span className="material-symbols-rounded text-[28px] opacity-70">draft</span>
+      <span className="text-[13px]">Không hỗ trợ xem trước cho loại tệp này ({asset.mime}).</span>
+    </div>
+  )
+}
 
 export function Overlays() {
   const s = useVault()
@@ -203,9 +278,7 @@ export function Overlays() {
               </span>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-3.5">
-              <div className="rounded-[10px] border border-[var(--bd)] bg-[var(--surf)] p-3 grid place-items-center">
-                <img alt={openAsset.name} src={openAsset.url} className="max-w-full max-h-[60dvh] md:max-h-[42dvh] h-auto block" />
-              </div>
+              <AssetPreview asset={openAsset} />
               <div className="flex flex-col gap-2.5">
                 <div className="flex flex-col gap-1">
                   <div className="text-[11px] tracking-[0.06em] uppercase text-[var(--tx2)]">Đường dẫn vật lý (cố định)</div>
