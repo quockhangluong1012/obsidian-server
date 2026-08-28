@@ -1,0 +1,35 @@
+@* Shared right-click (desktop) / long-press (mobile) menu for folders, notes and attachments. *@
+
+@if (Open)
+{
+    <div class="menu-scrim" @onclick="() => OnClose.InvokeAsync()" @oncontextmenu="() => OnClose.InvokeAsync()" @oncontextmenu:preventDefault="true"></div>
+    <div class="context-menu @(IsSheet ? "is-sheet" : null)" style="@(IsSheet ? null : $"left:{X}px;top:{Y}px")">
+        <div class="context-menu-title">@Title</div>
+        @foreach (var item in Items)
+        {
+            <button type="button" class="context-menu-item @(item.Danger ? "is-danger" : null)" @onclick="() => RunAsync(item)">
+                <Icon Name="@item.Icon" Size="16" />
+                <span>@item.Label</span>
+            </button>
+        }
+    </div>
+}
+
+@code {
+    public sealed record MenuAction(string Icon, string Label, Func<Task> OnClick, bool Danger = false);
+
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public double X { get; set; }
+    [Parameter] public double Y { get; set; }
+    [Parameter] public string Title { get; set; } = string.Empty;
+    [Parameter] public IReadOnlyList<MenuAction> Items { get; set; } = [];
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private bool IsSheet => X <= 0 && Y <= 0;
+
+    private async Task RunAsync(MenuAction item)
+    {
+        await OnClose.InvokeAsync();
+        await item.OnClick();
+    }
+}

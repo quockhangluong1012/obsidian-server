@@ -1,0 +1,50 @@
+@* Read-only viewer for an attachment: preview, permanent path, and where it's shown in the tree. *@
+@inject IJSRuntime JavaScript
+
+@if (Attachment is AttachmentSummary attachment)
+{
+    <div class="modal-scrim" @onclick="() => OnClose.InvokeAsync()"></div>
+    <div class="modal attachment-viewer" role="dialog" aria-modal="true" aria-labelledby="asset-heading">
+        <div class="asset-header">
+            <Icon Name="@(attachment.ContentType == "image/svg+xml" ? "shapes" : "image")" Size="20" />
+            <div class="asset-header-text">
+                <div id="asset-heading" class="asset-name">@attachment.FileName</div>
+                <div class="asset-meta">@attachment.ContentType · @FormatSize(attachment.Size)</div>
+            </div>
+            <button type="button" class="ico-btn" title="Close" aria-label="Close" @onclick="() => OnClose.InvokeAsync()"><Icon Name="x" Size="18" /></button>
+        </div>
+        <div class="asset-body">
+            <div class="asset-preview">
+                <img src="@Path" alt="@attachment.FileName" />
+            </div>
+            <div class="asset-field">
+                <span class="asset-field-label">Permanent path</span>
+                <div class="asset-path-row">
+                    <code>@Path</code>
+                    <button type="button" class="ico-btn" title="Copy path" aria-label="Copy path" @onclick="CopyPathAsync"><Icon Name="copy" Size="16" /></button>
+                </div>
+            </div>
+            <div class="asset-field">
+                <span class="asset-field-label">Shown in</span>
+                <div class="asset-location"><Icon Name="folder" Size="16" />@FolderPath</div>
+            </div>
+        </div>
+        <div class="modal-actions">
+            <button type="button" class="btn" @onclick="() => OnClose.InvokeAsync()">Close</button>
+            <button type="button" class="btn btn-primary" @onclick="() => OnMove.InvokeAsync()"><Icon Name="move" Size="15" /> Move to…</button>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public AttachmentSummary? Attachment { get; set; }
+    [Parameter] public string Path { get; set; } = string.Empty;
+    [Parameter] public string FolderPath { get; set; } = "Vault";
+    [Parameter] public EventCallback OnMove { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private static string FormatSize(long bytes) =>
+        bytes >= 1_048_576 ? $"{bytes / 1_048_576.0:0.0} MB" : $"{Math.Max(1, bytes / 1024)} KB";
+
+    private Task CopyPathAsync() => JavaScript.InvokeVoidAsync("obsidian.copyText", Path).AsTask();
+}

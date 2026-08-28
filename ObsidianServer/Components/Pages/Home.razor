@@ -1,0 +1,1056 @@
+@page "/"
+@rendermode InteractiveServer
+@implements IDisposable
+@inject WorkspaceService Workspace
+@inject AttachmentService Attachments
+@inject IJSRuntime JavaScript
+
+<PageTitle>@(active is null ? "Obsidian Lite" : $"{active.Title} - Obsidian Lite")</PageTitle>
+
+<div class="app @(sidebarOpen ? "sidebar-open" : null)">
+    <div class="app-body">
+        <div class="sidebar-scrim" @onclick="() => sidebarOpen = false"></div>
+
+        <aside class="sidebar" aria-label="Vault">
+            <div class="pane-header">
+                <button type="button" class="ico-btn @(pane == Pane.Files ? "is-active" : null)" title="Files" aria-label="Files" @onclick="() => pane = Pane.Files"><Icon Name="folder" /></button>
+                <button type="button" class="ico-btn @(pane == Pane.Search ? "is-active" : null)" title="Search" aria-label="Search" @onclick="ShowSearchAsync"><Icon Name="search" /></button>
+            </div>
+
+            @if (pane == Pane.Files)
+            {
+                <div class="pane-toolbar">
+                    <button type="button" class="ico-btn" title="New note" aria-label="New note" @onclick="CreateNoteAsync"><Icon Name="file-plus" /></button>
+                    <button type="button" class="ico-btn" title="New folder" aria-label="New folder" @onclick="() => StartNewFolder()"><Icon Name="folder-plus" /></button>
+                    <button type="button" class="ico-btn" title="@(recentFirst ? "Sorted by date modified" : "Sorted by name")" aria-label="Change sort order" @onclick="ToggleSortAsync"><Icon Name="sort" /></button>
+                    <button type="button" class="ico-btn" title="Collapse all" aria-label="Collapse all" @onclick="() => tree.Expanded.Clear()"><Icon Name="collapse" /></button>
+                </div>
+                <nav class="nav-scroll" aria-label="Vault files">
+                    <FileTree Tree="tree" />
+                </nav>
+            }
+            else
+            {
+                <div class="search-field">
+                    <Icon Name="search" Size="14" />
+                    <input @ref="searchInput"
+                           @key="searchRevision"
+                           type="search"
+                           placeholder="Search notes"
+                           aria-label="Search notes"
+                           autocomplete="off"
+                           spellcheck="false"
+                           @oninput="args => SearchAsync(args.Value?.ToString() ?? string.Empty)" />
+                    @if (searchTerm.Length > 0)
+                    {
+                        <button type="button" class="ico-btn clear" title="Clear search" aria-label="Clear search" @onclick="ClearSearchAsync"><Icon Name="x" Size="14" /></button>
+                    }
+                </div>
+                <div class="search-summary">@SearchSummary</div>
+                <div class="nav-scroll">
+                    @foreach (var hit in results)
+                    {
+                        <button type="button" class="search-hit @(active?.Id == hit.Id ? "is-active" : null)" @onclick="() => OpenNoteAsync(hit.Id)">
+                            <strong>@hit.Title</strong>
+                            <span>@FolderPath(hit.FolderId)</span>
+                        </button>
+                    }
+                </div>
+            }
+        </aside>
+
+        <div class="sidebar-resize" title="Drag to resize"></div>
+
+        <main class="main">
+            <div class="tabstrip">
+                <div class="tabs">
+                    @foreach (var tabId in tabs)
+                    {
+                        <div class="tab @(active?.Id == tabId ? "is-active" : null)" @onclick="() => OpenNoteAsync(tabId)">
+                            <span class="tab-title">@TabTitle(tabId)</span>
+                            <button type="button" class="tab-close" title="Close" aria-label="@($"Close {TabTitle(tabId)}")" @onclick="() => CloseTabAsync(tabId)" @onclick:stopPropagation="true"><Icon Name="x" Size="13" /></button>
+                        </div>
+                    }
+                </div>
+                <button type="button" class="ico-btn" title="New note" aria-label="New note" @onclick="CreateNoteAsync"><Icon Name="plus" /></button>
+                <div class="tabstrip-actions">
+                    <button type="button" class="ico-btn @(outlineOpen ? "is-active" : null)" title="Toggle panel" aria-label="Toggle panel" @onclick="() => outlineOpen = !outlineOpen"><Icon Name="panel-right" /></button>
+                    <button type="button" class="ico-btn" title="@(theme == "dark" ? "Switch to light theme" : "Switch to dark theme")" aria-label="Switch theme" @onclick="ToggleThemeAsync"><Icon Name="@(theme == "dark" ? "sun" : "moon")" /></button>
+                </div>
+            </div>
+
+            <div class="view-header">
+                <button type="button" class="ico-btn only-mobile" title="Toggle files" aria-label="Toggle files" @onclick="() => sidebarOpen = !sidebarOpen"><Icon Name="menu" /></button>
+                <button type="button" class="ico-btn" title="Back" aria-label="Back" disabled="@(back.Count == 0)" @onclick="GoBackAsync"><Icon Name="arrow-left" /></button>
+                <button type="button" class="ico-btn" title="Forward" aria-label="Forward" disabled="@(forward.Count == 0)" @onclick="GoForwardAsync"><Icon Name="arrow-right" /></button>
+
+                @if (active is not null)
+                {
+                    <div class="breadcrumb">
+                        @foreach (var crumb in FolderCrumbs(active.FolderId))
+                        {
+                            <span class="crumb">@crumb</span>
+                            <span class="crumb-sep">/</span>
+                        }
+                        <input @ref="titleInput"
+                               @key="(active.Id, titleRevision)"
+                               class="title-input"
+                               value="@titleDraft"
+                               aria-label="Note title"
+                               spellcheck="false"
+                               @onchange="args => TitleChangedAsync(args.Value?.ToString() ?? string.Empty)" />
+                    </div>
+                    <div class="view-actions">
+                        <button type="button" class="ico-btn" title="@(reading ? "Edit note" : "Reading view")" aria-label="@(reading ? "Edit note" : "Reading view")" @onclick="ToggleReadingAsync"><Icon Name="@(reading ? "pencil" : "book-open")" /></button>
+                        <a class="ico-btn" href="@($"/notes/{active.Id}/export")" title="Export as Markdown" aria-label="Export as Markdown"><Icon Name="download" /></a>
+                        <button type="button" class="ico-btn is-danger" title="Delete note" aria-label="Delete note" @onclick="() => RequestDelete(VaultNodeKind.Note, active.Id, active.Title)"><Icon Name="trash" /></button>
+                    </div>
+                }
+            </div>
+
+            <div class="view-content">
+                @if (active is null)
+                {
+                    <div class="empty-view">
+                        <p>No file is open</p>
+                        <div class="empty-actions">
+                            <button type="button" class="link-action" @onclick="CreateNoteAsync">Create new note</button>
+                            <button type="button" class="link-action" @onclick="ShowSearchAsync">Search for a note</button>
+                        </div>
+                    </div>
+                }
+                else if (reading)
+                {
+                    <div class="reading-scroll">
+                        <div class="content-column">
+                            <MarkdownPreview @ref="preview" Content="@active.Content" />
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="content-column editor-column">
+                        <MarkdownEditor NoteId="active.Id" FolderId="active.FolderId" Value="@active.Content" ValueChanged="ContentChangedAsync" />
+                    </div>
+                }
+            </div>
+        </main>
+
+        @if (outlineOpen)
+        {
+            <aside class="outline" aria-label="Outline, backlinks and tags">
+                <div class="pane-header">
+                    <span>Outline</span>
+                    <button type="button" class="ico-btn" title="Close panel" aria-label="Close panel" @onclick="() => outlineOpen = false"><Icon Name="x" Size="14" /></button>
+                </div>
+                <div class="outline-scroll">
+                    @if (outline.Count == 0)
+                    {
+                        <div class="outline-empty">@(active is null ? "No file is open." : "No headings in this note.")</div>
+                    }
+                    else
+                    {
+                        @for (var index = 0; index < outline.Count; index++)
+                        {
+                            var position = index;
+                            var heading = outline[index];
+                            <button type="button" class="outline-item" data-level="@heading.Level" @onclick="() => JumpToHeading(position)">@heading.Text</button>
+                        }
+                    }
+
+                    <div class="panel-section">
+                        <div class="panel-section-title"><Icon Name="link" Size="14" />Backlinks<span class="panel-count">@_backlinks.Count</span></div>
+                        @if (_backlinks.Count == 0)
+                        {
+                            <div class="panel-empty">No notes link here yet.</div>
+                        }
+                        else
+                        {
+                            @foreach (var link in _backlinks)
+                            {
+                                <button type="button" class="backlink-item" @onclick="() => OpenNoteAsync(link.Id)">@link.Title</button>
+                            }
+                        }
+                    </div>
+
+                    <div class="panel-section">
+                        <div class="panel-section-title"><Icon Name="hash" Size="14" />Tags</div>
+                        @if (_tags.Count == 0)
+                        {
+                            <div class="panel-empty">No tags in this note.</div>
+                        }
+                        else
+                        {
+                            <div class="tag-row">
+                                @foreach (var tag in _tags)
+                                {
+                                    <span class="tag-chip">@tag</span>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            </aside>
+        }
+    </div>
+
+    <footer class="statusbar">
+        <span class="vault-name">Obsidian Lite</span>
+        <span class="spacer"></span>
+        @if (active is not null)
+        {
+            <span>@CountWords(active.Content) words</span>
+            <span>@active.Content.Length characters</span>
+        }
+        <span class="save-state" data-state="@saveState">@SaveMessage</span>
+    </footer>
+</div>
+
+@if (deleteTarget is { } target)
+{
+    <div class="modal-scrim" @onclick="() => deleteTarget = null"></div>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="delete-heading">
+        <h2 id="delete-heading">Delete @DeleteKindWord(target.Kind)</h2>
+        <p>“@target.Name” will be permanently deleted.</p>
+        <div class="modal-actions">
+            <button type="button" class="btn" @onclick="() => deleteTarget = null">Cancel</button>
+            <button type="button" class="btn btn-danger" @onclick="ConfirmDeleteAsync">Delete</button>
+        </div>
+    </div>
+}
+
+<ContextMenu Open="menu is not null" X="menu?.X ?? 0" Y="menu?.Y ?? 0" Title="@(menu?.Name ?? string.Empty)" Items="MenuItems()" OnClose="CloseMenu" />
+
+<MoveDialog Open="move is not null"
+            KindLabel="@(move is { } m ? DeleteKindWord(m.Kind) : string.Empty)"
+            Name="@(move?.Name ?? string.Empty)"
+            Note="Only the display location changes — existing links and paths keep working."
+            Options="MoveOptions()"
+            OnMove="ApplyMoveAsync"
+            OnClose="() => move = null" />
+
+<CommandPalette Open="paletteOpen" Entries="PaletteEntries()" OnSelect="OnPaletteSelectAsync" OnClose="() => paletteOpen = false" />
+
+<AttachmentViewer Attachment="openAttachment"
+                   Path="@(openAttachment is null ? string.Empty : $"/api/files/{openAttachment.Id}")"
+                   FolderPath="@AttachmentLocation(openAttachment?.FolderId)"
+                   OnMove="RequestMoveForOpenAttachment"
+                   OnClose="CloseAttachment" />
+
+@if (toast.Length > 0)
+{
+    <div class="toast"><Icon Name="check" Size="16" />@toast</div>
+}
+
+@code {
+    private enum Pane { Files, Search }
+
+    private sealed record Heading(int Level, string Text);
+    private sealed record DeleteTarget(VaultNodeKind Kind, Guid Id, string Name);
+    private sealed record MoveState(VaultNodeKind Kind, Guid Id, string Name);
+
+    private readonly List<Guid> tabs = [];
+    private readonly List<Guid> back = [];
+    private readonly List<Guid> forward = [];
+    private readonly List<Heading> outline = [];
+    private readonly Dictionary<Guid, FolderSummary> folderById = [];
+    private readonly Dictionary<Guid, NoteSummary> noteById = [];
+    private readonly Dictionary<Guid, AttachmentSummary> attachmentById = [];
+
+    private VaultTree tree = default!;
+    private NoteDocument? active;
+    private IReadOnlyList<NoteSummary> results = [];
+    private IReadOnlyList<NoteSummary> _backlinks = [];
+    private IReadOnlyList<string> _tags = [];
+    private Pane pane = Pane.Files;
+    private DeleteTarget? deleteTarget;
+    private MenuRequest? menu;
+    private MoveState? move;
+    private AttachmentSummary? openAttachment;
+    private bool paletteOpen;
+    private string toast = string.Empty;
+    private CancellationTokenSource? toastCts;
+    private DotNetObjectReference<Home>? selfRef;
+    private string searchTerm = string.Empty;
+    private int searchRevision;
+    private string titleDraft = string.Empty;
+    private int titleRevision;
+    private string searchError = string.Empty;
+    private string errorMessage = string.Empty;
+    private string saveState = string.Empty;
+    private string theme = "light";
+    private bool recentFirst = true;
+    private bool reading;
+    private bool outlineOpen = true;
+    private bool sidebarOpen;
+    private bool dirty;
+    private bool focusTitle;
+    private bool focusSearch;
+    private bool themeLoaded;
+    private int? pendingHeading;
+    private CancellationTokenSource? debounce;
+    private ElementReference titleInput;
+    private ElementReference searchInput;
+    private MarkdownPreview? preview;
+
+    private string SaveMessage => saveState switch
+    {
+        "saving" => "Unsaved changes",
+        "saved" => "Saved",
+        "error" => errorMessage.Length > 0 ? errorMessage : "Could not save",
+        _ => string.Empty
+    };
+
+    private string SearchSummary => searchTerm.Length == 0
+        ? "Type to search titles and note content."
+        : searchError.Length > 0 ? searchError : $"{results.Count} {(results.Count == 1 ? "result" : "results")}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        tree = new VaultTree
+        {
+            ToggleFolder = EventCallback.Factory.Create<Guid>(this, ToggleFolder),
+            SelectFolder = EventCallback.Factory.Create<Guid>(this, id => tree.ActiveFolderId = id),
+            OpenNote = EventCallback.Factory.Create<Guid>(this, id => OpenNoteAsync(id)),
+            OpenAttachment = EventCallback.Factory.Create<Guid>(this, OpenAttachment),
+            CommitFolderDraft = EventCallback.Factory.Create<string>(this, CommitFolderDraftAsync),
+            CancelFolderDraft = EventCallback.Factory.Create(this, CancelFolderDraft),
+            ShowMenu = EventCallback.Factory.Create<MenuRequest>(this, request => menu = request),
+            BeginDrag = EventCallback.Factory.Create<DragItem>(this, item => tree.Dragging = item),
+            EndDrag = EventCallback.Factory.Create(this, () => tree.Dragging = null),
+            Drop = EventCallback.Factory.Create<Guid?>(this, HandleDropAsync)
+        };
+
+        await LoadVaultAsync();
+        var first = tree.Subfolders(null).FirstOrDefault();
+        if (first is not null)
+        {
+            tree.Expanded.Add(first.Id);
+            tree.ActiveFolderId = first.Id;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            selfRef = DotNetObjectReference.Create(this);
+            await JavaScript.InvokeVoidAsync("obsidian.bindShortcut", selfRef);
+        }
+
+        if (firstRender && !themeLoaded)
+        {
+            themeLoaded = true;
+            theme = await JavaScript.InvokeAsync<string>("obsidian.initTheme");
+            StateHasChanged();
+        }
+
+        if (focusTitle)
+        {
+            focusTitle = false;
+            await JavaScript.InvokeVoidAsync("obsidian.focusAndSelect", titleInput);
+        }
+
+        if (focusSearch)
+        {
+            focusSearch = false;
+            await searchInput.FocusAsync();
+        }
+
+        if (pendingHeading is int index && reading && preview is not null)
+        {
+            pendingHeading = null;
+            await preview.ScrollToHeadingAsync(index);
+        }
+    }
+
+    [JSInvokable]
+    public void OpenPalette()
+    {
+        paletteOpen = true;
+        StateHasChanged();
+    }
+
+    /* --- vault ----------------------------------------------------------- */
+
+    private async Task LoadVaultAsync()
+    {
+        var folders = await Workspace.GetFoldersAsync();
+        var notes = await Workspace.GetNotesAsync(null);
+        var attachments = await Attachments.GetAllAsync();
+
+        folderById.Clear();
+        foreach (var folder in folders) folderById[folder.Id] = folder;
+
+        noteById.Clear();
+        foreach (var note in notes) noteById[note.Id] = note;
+
+        attachmentById.Clear();
+        foreach (var attachment in attachments) attachmentById[attachment.Id] = attachment;
+
+        tree.Load(folders, notes, attachments, recentFirst);
+        tabs.RemoveAll(id => !noteById.ContainsKey(id));
+        back.RemoveAll(id => !noteById.ContainsKey(id));
+        forward.RemoveAll(id => !noteById.ContainsKey(id));
+
+        if (openAttachment is not null)
+        {
+            openAttachment = attachmentById.TryGetValue(openAttachment.Id, out var refreshed) ? refreshed : null;
+            tree.OpenAttachmentId = openAttachment?.Id;
+        }
+    }
+
+    private void ToggleFolder(Guid id)
+    {
+        if (!tree.Expanded.Add(id)) tree.Expanded.Remove(id);
+    }
+
+    private async Task ToggleSortAsync()
+    {
+        recentFirst = !recentFirst;
+        await LoadVaultAsync();
+    }
+
+    private string TabTitle(Guid id) => active?.Id == id
+        ? active.Title
+        : noteById.TryGetValue(id, out var note) ? note.Title : "Untitled";
+
+    private IEnumerable<string> FolderCrumbs(Guid? folderId)
+    {
+        var names = new List<string>();
+        var current = folderId is Guid start && folderById.TryGetValue(start, out var folder) ? folder : null;
+        while (current is not null)
+        {
+            names.Insert(0, current.Name);
+            current = current.ParentId is Guid parentId && folderById.TryGetValue(parentId, out var parent) ? parent : null;
+        }
+        return names;
+    }
+
+    private string FolderPath(Guid? folderId) => folderId is null ? "Vault" : string.Join(" / ", FolderCrumbs(folderId));
+
+    private string AttachmentLocation(Guid? folderId) => FolderPath(folderId);
+
+    /* --- notes ----------------------------------------------------------- */
+
+    private async Task OpenNoteAsync(Guid id, bool recordHistory = true)
+    {
+        if (active?.Id == id)
+        {
+            sidebarOpen = false;
+            return;
+        }
+
+        await FlushSaveAsync();
+        var document = await Workspace.GetNoteAsync(id);
+        if (document is null)
+        {
+            await LoadVaultAsync();
+            return;
+        }
+
+        if (recordHistory && active is not null)
+        {
+            back.Add(active.Id);
+            forward.Clear();
+        }
+
+        active = document;
+        titleDraft = document.Title;
+        if (!tabs.Contains(id)) tabs.Add(id);
+        tree.ActiveNoteId = id;
+        tree.ActiveFolderId = document.FolderId;
+        if (document.FolderId is Guid noteFolder) ExpandAncestors(noteFolder);
+        RefreshOutline();
+        await RefreshBacklinksAsync();
+        saveState = string.Empty;
+        sidebarOpen = false;
+    }
+
+    private void ExpandAncestors(Guid folderId)
+    {
+        var current = folderById.TryGetValue(folderId, out var folder) ? folder : null;
+        while (current is not null)
+        {
+            tree.Expanded.Add(current.Id);
+            current = current.ParentId is Guid parentId && folderById.TryGetValue(parentId, out var parent) ? parent : null;
+        }
+    }
+
+    private async Task CreateNoteAsync()
+    {
+        var folderId = tree.ActiveFolderId ?? active?.FolderId;
+        await FlushSaveAsync();
+        pane = Pane.Files;
+        var created = await Workspace.CreateNoteAsync(folderId, UntitledName(folderId));
+        await LoadVaultAsync();
+        await ActivateCreatedNoteAsync(created, focusTitleField: true);
+    }
+
+    private async Task DuplicateNoteAsync(Guid id)
+    {
+        try
+        {
+            var copy = await Workspace.DuplicateNoteAsync(id);
+            await FlushSaveAsync();
+            await LoadVaultAsync();
+            await ActivateCreatedNoteAsync(copy, focusTitleField: false);
+            ToastMessage($"Duplicated as “{copy.Title}”");
+        }
+        catch (InvalidOperationException exception)
+        {
+            errorMessage = exception.Message;
+            saveState = "error";
+        }
+    }
+
+    private async Task ActivateCreatedNoteAsync(NoteDocument created, bool focusTitleField)
+    {
+        if (active is not null) { back.Add(active.Id); forward.Clear(); }
+        active = created;
+        titleDraft = created.Title;
+        tabs.Add(created.Id);
+        tree.ActiveNoteId = created.Id;
+        if (created.FolderId is Guid parent) { tree.Expanded.Add(parent); ExpandAncestors(parent); }
+        RefreshOutline();
+        await RefreshBacklinksAsync();
+        reading = false;
+        saveState = string.Empty;
+        sidebarOpen = false;
+        focusTitle = focusTitleField;
+    }
+
+    private string UntitledName(Guid? folderId)
+    {
+        var taken = tree.NotesIn(folderId).Select(note => note.Title).ToHashSet(StringComparer.CurrentCultureIgnoreCase);
+        if (!taken.Contains("Untitled")) return "Untitled";
+        for (var suffix = 1; ; suffix++)
+        {
+            var candidate = $"Untitled {suffix}";
+            if (!taken.Contains(candidate)) return candidate;
+        }
+    }
+
+    private async Task CloseTabAsync(Guid id)
+    {
+        var position = tabs.IndexOf(id);
+        if (position < 0) return;
+
+        if (active?.Id == id) await FlushSaveAsync();
+        tabs.RemoveAt(position);
+
+        if (active?.Id != id) return;
+        active = null;
+        tree.ActiveNoteId = null;
+        outline.Clear();
+        _tags = [];
+        _backlinks = [];
+        saveState = string.Empty;
+
+        var neighbour = tabs.Count == 0 ? (Guid?)null : tabs[Math.Min(position, tabs.Count - 1)];
+        if (neighbour is Guid next) await OpenNoteAsync(next, recordHistory: false);
+    }
+
+    private async Task StartRenameNoteAsync(Guid id)
+    {
+        if (active?.Id != id) await OpenNoteAsync(id);
+        focusTitle = true;
+    }
+
+    /* --- delete (notes, folders, attachments) ----------------------------- */
+
+    private void RequestDelete(VaultNodeKind kind, Guid id, string name) => deleteTarget = new DeleteTarget(kind, id, name);
+
+    private static string DeleteKindWord(VaultNodeKind kind) => kind switch
+    {
+        VaultNodeKind.Folder => "Folder",
+        VaultNodeKind.Attachment => "File",
+        _ => "Note"
+    };
+
+    private async Task ConfirmDeleteAsync()
+    {
+        if (deleteTarget is not { } target) return;
+        deleteTarget = null;
+
+        try
+        {
+            switch (target.Kind)
+            {
+                case VaultNodeKind.Note:
+                    debounce?.Cancel();
+                    dirty = false;
+                    await Workspace.DeleteNoteAsync(target.Id);
+                    var position = tabs.IndexOf(target.Id);
+                    if (position >= 0) tabs.RemoveAt(position);
+                    if (active?.Id == target.Id)
+                    {
+                        active = null;
+                        tree.ActiveNoteId = null;
+                        outline.Clear();
+                        _tags = [];
+                        _backlinks = [];
+                    }
+                    await LoadVaultAsync();
+                    if (searchTerm.Length > 0) await SearchAsync(searchTerm);
+                    if (active is null && tabs.Count > 0)
+                        await OpenNoteAsync(tabs[Math.Min(position < 0 ? 0 : position, tabs.Count - 1)], recordHistory: false);
+                    break;
+
+                case VaultNodeKind.Folder:
+                    await Workspace.DeleteFolderAsync(target.Id);
+                    if (tree.ActiveFolderId == target.Id) tree.ActiveFolderId = null;
+                    await LoadVaultAsync();
+                    break;
+
+                case VaultNodeKind.Attachment:
+                    await Attachments.DeleteAsync(target.Id);
+                    if (openAttachment?.Id == target.Id) CloseAttachment();
+                    await LoadVaultAsync();
+                    break;
+            }
+
+            ToastMessage($"Deleted “{target.Name}”");
+        }
+        catch (InvalidOperationException exception)
+        {
+            errorMessage = exception.Message;
+            saveState = "error";
+        }
+    }
+
+    /* --- folders ----------------------------------------------------------- */
+
+    private void StartNewFolder(Guid? parentId = null)
+    {
+        pane = Pane.Files;
+        tree.RenamingFolderId = null;
+        tree.CreatingFolder = true;
+        tree.NewFolderParentId = parentId ?? tree.ActiveFolderId;
+        if (tree.NewFolderParentId is Guid parent) { tree.Expanded.Add(parent); ExpandAncestors(parent); }
+    }
+
+    private void StartRenameFolder(Guid id, string name)
+    {
+        tree.CreatingFolder = false;
+        tree.RenamingFolderId = id;
+        tree.RenamingInitialName = name;
+        ExpandAncestors(id);
+    }
+
+    private void CancelFolderDraft()
+    {
+        tree.CreatingFolder = false;
+        tree.RenamingFolderId = null;
+    }
+
+    private async Task CommitFolderDraftAsync(string rawName)
+    {
+        var name = rawName.Trim();
+
+        if (tree.RenamingFolderId is Guid renamingId)
+        {
+            tree.RenamingFolderId = null;
+            if (name.Length == 0 || name == tree.RenamingInitialName) return;
+            try
+            {
+                await Workspace.RenameFolderAsync(renamingId, name);
+                await LoadVaultAsync();
+                ToastMessage($"Renamed to “{name}”");
+            }
+            catch (InvalidOperationException exception)
+            {
+                errorMessage = exception.Message;
+                saveState = "error";
+            }
+            return;
+        }
+
+        if (!tree.CreatingFolder) return;
+        if (name.Length == 0) { CancelFolderDraft(); return; }
+
+        var parent = tree.NewFolderParentId;
+        try
+        {
+            var created = await Workspace.CreateFolderAsync(name, parent);
+            CancelFolderDraft();
+            await LoadVaultAsync();
+            tree.ActiveFolderId = created.Id;
+            ExpandAncestors(created.Id);
+            ToastMessage($"Created folder “{created.Name}”");
+        }
+        catch (InvalidOperationException exception)
+        {
+            errorMessage = exception.Message;
+            saveState = "error";
+        }
+    }
+
+    /* --- move (drag-and-drop and the "Move to…" dialog share this) -------- */
+
+    private void RequestMove(VaultNodeKind kind, Guid id, string name) => move = new MoveState(kind, id, name);
+
+    private void RequestMoveForOpenAttachment()
+    {
+        if (openAttachment is not { } attachment) return;
+        RequestMove(VaultNodeKind.Attachment, attachment.Id, attachment.FileName);
+        CloseAttachment();
+    }
+
+    private List<MoveDialog.MoveOption> MoveOptions()
+    {
+        var options = new List<MoveDialog.MoveOption> { new(null, "Vault", 0) };
+
+        void Walk(Guid? parentId, int depth)
+        {
+            foreach (var folder in tree.Subfolders(parentId))
+            {
+                if (move is { Kind: VaultNodeKind.Folder } target && folder.Id == target.Id) continue;
+                options.Add(new MoveDialog.MoveOption(folder.Id, folder.Name, depth));
+                Walk(folder.Id, depth + 1);
+            }
+        }
+
+        Walk(null, 1);
+        return options;
+    }
+
+    private async Task ApplyMoveAsync(Guid? targetFolderId)
+    {
+        if (move is not { } target) return;
+        move = null;
+
+        try
+        {
+            switch (target.Kind)
+            {
+                case VaultNodeKind.Note:
+                    await Workspace.MoveNoteAsync(target.Id, targetFolderId);
+                    break;
+                case VaultNodeKind.Folder:
+                    await Workspace.MoveFolderAsync(target.Id, targetFolderId);
+                    break;
+                case VaultNodeKind.Attachment:
+                    await Attachments.MoveAsync(target.Id, targetFolderId);
+                    break;
+            }
+
+            if (targetFolderId is Guid parent) ExpandAncestors(parent);
+            await LoadVaultAsync();
+            ToastMessage($"Moved “{target.Name}” to {FolderPath(targetFolderId)}");
+        }
+        catch (InvalidOperationException exception)
+        {
+            errorMessage = exception.Message;
+            saveState = "error";
+        }
+    }
+
+    private async Task HandleDropAsync(Guid? targetFolderId)
+    {
+        var dragging = tree.Dragging;
+        tree.Dragging = null;
+        if (dragging is null) return;
+        move = new MoveState(dragging.Kind, dragging.Id, dragging.Name);
+        await ApplyMoveAsync(targetFolderId);
+    }
+
+    /* --- context menu -------------------------------------------------------- */
+
+    private void CloseMenu() => menu = null;
+
+    private IReadOnlyList<ContextMenu.MenuAction> MenuItems()
+    {
+        if (menu is not { } target) return [];
+
+        return target.Kind switch
+        {
+            VaultNodeKind.Folder =>
+            [
+                new("file-plus", "New note", () => { tree.ActiveFolderId = target.Id; return CreateNoteAsync(); }),
+                new("folder-plus", "New subfolder", () => { StartNewFolder(target.Id); return Task.CompletedTask; }),
+                new("move", "Move to…", () => { RequestMove(VaultNodeKind.Folder, target.Id, target.Name); return Task.CompletedTask; }),
+                new("pencil", "Rename", () => { StartRenameFolder(target.Id, target.Name); return Task.CompletedTask; }),
+                new("trash", "Delete folder", () => { RequestDelete(VaultNodeKind.Folder, target.Id, target.Name); return Task.CompletedTask; }, Danger: true)
+            ],
+            VaultNodeKind.Note =>
+            [
+                new("move", "Move to…", () => { RequestMove(VaultNodeKind.Note, target.Id, target.Name); return Task.CompletedTask; }),
+                new("pencil", "Rename", () => StartRenameNoteAsync(target.Id)),
+                new("copy", "Duplicate", () => DuplicateNoteAsync(target.Id)),
+                new("trash", "Delete note", () => { RequestDelete(VaultNodeKind.Note, target.Id, target.Name); return Task.CompletedTask; }, Danger: true)
+            ],
+            VaultNodeKind.Attachment =>
+            [
+                new("image", "View", () => { OpenAttachment(target.Id); return Task.CompletedTask; }),
+                new("move", "Move to…", () => { RequestMove(VaultNodeKind.Attachment, target.Id, target.Name); return Task.CompletedTask; }),
+                new("link", "Copy path", () => CopyAttachmentPathAsync(target.Id)),
+                new("trash", "Delete file", () => { RequestDelete(VaultNodeKind.Attachment, target.Id, target.Name); return Task.CompletedTask; }, Danger: true)
+            ],
+            _ => []
+        };
+    }
+
+    /* --- attachments --------------------------------------------------------- */
+
+    private void OpenAttachment(Guid id)
+    {
+        if (!attachmentById.TryGetValue(id, out var attachment)) return;
+        openAttachment = attachment;
+        tree.OpenAttachmentId = id;
+        sidebarOpen = false;
+    }
+
+    private void CloseAttachment()
+    {
+        openAttachment = null;
+        tree.OpenAttachmentId = null;
+    }
+
+    private Task CopyAttachmentPathAsync(Guid id)
+    {
+        ToastMessage("Copied path");
+        return JavaScript.InvokeVoidAsync("obsidian.copyText", $"/api/files/{id}").AsTask();
+    }
+
+    /* --- editing --------------------------------------------------------- */
+
+    private async Task ContentChangedAsync(string value)
+    {
+        if (active is null) return;
+        active = active with { Content = value };
+        RefreshOutline();
+        await ScheduleSaveAsync();
+    }
+
+    // Commits on blur or Enter (the onchange event), so keystrokes never round-trip
+    // through a re-render that would reset the input's DOM value and caret.
+    private async Task TitleChangedAsync(string value)
+    {
+        if (active is null) return;
+        if (value.Trim().Length == 0)
+        {
+            titleRevision++;   // rejected: rebuild the input so it shows the kept title again
+            return;
+        }
+
+        titleDraft = value;
+        active = active with { Title = value };
+        await ScheduleSaveAsync();
+    }
+
+    private async Task ScheduleSaveAsync()
+    {
+        dirty = true;
+        saveState = "saving";
+        debounce?.Cancel();
+        debounce?.Dispose();
+        debounce = new CancellationTokenSource();
+        var token = debounce.Token;
+        try
+        {
+            await Task.Delay(700, token);
+            await SaveAsync();
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task FlushSaveAsync()
+    {
+        debounce?.Cancel();
+        if (dirty) await SaveAsync();
+    }
+
+    private async Task SaveAsync()
+    {
+        if (active is null || !dirty) return;
+        var document = active;
+        try
+        {
+            await Workspace.SaveNoteAsync(document.Id, document.Title, document.Content);
+            dirty = false;
+            errorMessage = string.Empty;
+            saveState = "saved";
+            await LoadVaultAsync();
+        }
+        catch (InvalidOperationException exception)
+        {
+            errorMessage = exception.Message;
+            saveState = "error";
+        }
+    }
+
+    private async Task ToggleReadingAsync()
+    {
+        reading = !reading;
+        if (reading) await FlushSaveAsync();
+    }
+
+    private void JumpToHeading(int index)
+    {
+        reading = true;
+        pendingHeading = index;
+    }
+
+    private void RefreshOutline()
+    {
+        outline.Clear();
+        _tags = active is null ? [] : WorkspaceService.ExtractTags(active.Content);
+        if (active is null) return;
+
+        var fenced = false;
+        foreach (var line in active.Content.AsSpan().EnumerateLines())
+        {
+            var trimmed = line.TrimStart();
+            if (trimmed.StartsWith("```") || trimmed.StartsWith("~~~"))
+            {
+                fenced = !fenced;
+                continue;
+            }
+
+            if (fenced || trimmed.Length < 2 || trimmed[0] != '#') continue;
+
+            var level = 0;
+            while (level < trimmed.Length && trimmed[level] == '#') level++;
+            if (level > 6 || level >= trimmed.Length || trimmed[level] != ' ') continue;
+
+            var text = trimmed[(level + 1)..].Trim();
+            if (!text.IsEmpty) outline.Add(new Heading(level, text.ToString()));
+        }
+    }
+
+    private async Task RefreshBacklinksAsync()
+    {
+        _backlinks = active is null ? [] : await Workspace.GetBacklinksAsync(active.Id);
+    }
+
+    private static int CountWords(string text)
+    {
+        var words = 0;
+        var inWord = false;
+        foreach (var character in text)
+        {
+            if (char.IsWhiteSpace(character)) inWord = false;
+            else if (!inWord) { inWord = true; words++; }
+        }
+        return words;
+    }
+
+    /* --- navigation, search, theme, palette, toast ------------------------ */
+
+    private async Task GoBackAsync()
+    {
+        if (back.Count == 0) return;
+        var target = back[^1];
+        back.RemoveAt(back.Count - 1);
+        if (active is not null) forward.Add(active.Id);
+        await OpenNoteAsync(target, recordHistory: false);
+    }
+
+    private async Task GoForwardAsync()
+    {
+        if (forward.Count == 0) return;
+        var target = forward[^1];
+        forward.RemoveAt(forward.Count - 1);
+        if (active is not null) back.Add(active.Id);
+        await OpenNoteAsync(target, recordHistory: false);
+    }
+
+    private Task ShowSearchAsync()
+    {
+        pane = Pane.Search;
+        focusSearch = true;
+        sidebarOpen = true;
+        return Task.CompletedTask;
+    }
+
+    private async Task SearchAsync(string value)
+    {
+        searchTerm = value;
+        searchError = string.Empty;
+        if (value.Trim().Length == 0)
+        {
+            results = [];
+            return;
+        }
+
+        try
+        {
+            results = await Workspace.SearchAsync(value);
+        }
+        catch (Exception)
+        {
+            results = [];
+            searchError = "That search could not be parsed.";
+        }
+    }
+
+    private async Task ClearSearchAsync()
+    {
+        searchRevision++;   // rebuilds the (uncontrolled) input so the box empties
+        focusSearch = true;
+        await SearchAsync(string.Empty);
+    }
+
+    private async Task ToggleThemeAsync()
+    {
+        theme = theme == "dark" ? "light" : "dark";
+        await JavaScript.InvokeVoidAsync("obsidian.setTheme", theme);
+    }
+
+    private List<CommandPalette.PaletteEntry> PaletteEntries()
+    {
+        var entries = new List<CommandPalette.PaletteEntry>(folderById.Count + noteById.Count);
+        foreach (var folder in folderById.Values)
+            entries.Add(new CommandPalette.PaletteEntry(folder.Id, folder.Name, FolderPath(folder.ParentId), IsFolder: true));
+        foreach (var note in noteById.Values)
+            entries.Add(new CommandPalette.PaletteEntry(note.Id, note.Title, FolderPath(note.FolderId), IsFolder: false));
+        return entries;
+    }
+
+    private async Task OnPaletteSelectAsync(CommandPalette.PaletteEntry entry)
+    {
+        paletteOpen = false;
+        if (entry.IsFolder)
+        {
+            tree.ActiveFolderId = entry.Id;
+            tree.Expanded.Add(entry.Id);
+            ExpandAncestors(entry.Id);
+            pane = Pane.Files;
+            sidebarOpen = true;
+        }
+        else
+        {
+            await OpenNoteAsync(entry.Id);
+        }
+    }
+
+    private void ToastMessage(string message)
+    {
+        toast = message;
+        toastCts?.Cancel();
+        toastCts?.Dispose();
+        toastCts = new CancellationTokenSource();
+        _ = ClearToastAsync(toastCts.Token);
+    }
+
+    private async Task ClearToastAsync(CancellationToken token)
+    {
+        try
+        {
+            await Task.Delay(3200, token);
+            toast = string.Empty;
+            StateHasChanged();
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    public void Dispose()
+    {
+        debounce?.Cancel();
+        debounce?.Dispose();
+        toastCts?.Cancel();
+        toastCts?.Dispose();
+        selfRef?.Dispose();
+    }
+}

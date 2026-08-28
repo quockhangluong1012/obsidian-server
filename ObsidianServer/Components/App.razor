@@ -1,0 +1,30 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#1e1e1e" />
+    <base href="/" />
+    <script>
+        // Applied before first paint so a stored theme or sidebar width never flashes.
+        try {
+            document.documentElement.dataset.theme = localStorage.getItem('obsidian-theme') || 'light';
+            const width = localStorage.getItem('obsidian-sidebar');
+            if (width) document.documentElement.style.setProperty('--sidebar-w', width + 'px');
+        } catch { }
+    </script>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" />
+    <link rel="stylesheet" href="app.css" />
+    <link rel="stylesheet" href="lib/katex.min.css" />
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <HeadOutlet />
+</head>
+<body>
+    <Routes />
+    <script src="obsidian.js"></script>
+    <script src="_framework/blazor.web.js"></script>
+</body>
+</html>

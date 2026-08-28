@@ -1,0 +1,21 @@
+@inject IJSRuntime JavaScript
+
+<div class="markdown-rendered" @ref="host"></div>
+
+@code {
+    [Parameter] public string Content { get; set; } = string.Empty;
+
+    private ElementReference host;
+    private string? rendered;
+
+    /// <summary>Renders only when the markdown actually changed; keystrokes must not re-run the pipeline.</summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (rendered == Content) return;
+        rendered = Content;
+        await JavaScript.InvokeVoidAsync("obsidian.renderMarkdown", host, Content);
+    }
+
+    public ValueTask ScrollToHeadingAsync(int index) =>
+        JavaScript.InvokeVoidAsync("obsidian.scrollToHeading", host, index);
+}

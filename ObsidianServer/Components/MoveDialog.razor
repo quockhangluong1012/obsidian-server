@@ -1,0 +1,63 @@
+@* "Move to…" dialog, shared by folders, notes and attachments. Only the display location changes — an attachment's physical /api/files/{id} path never changes. *@
+
+@if (Open)
+{
+    <div class="modal-scrim" @onclick="() => OnClose.InvokeAsync()"></div>
+    <div class="modal move-dialog" role="dialog" aria-modal="true" aria-labelledby="move-heading">
+        <div class="move-kind">@KindLabel</div>
+        <h2 id="move-heading">@Name</h2>
+        <div class="move-list">
+            @foreach (var option in Options)
+            {
+                <button type="button" class="move-option @(hasPicked && selected == option.Id ? "is-selected" : null)"
+                        style="padding-left:@(12 + option.Depth * 16)px"
+                        @onclick="() => Pick(option.Id)">
+                    <Icon Name="@(option.Id is null ? "folder" : "folder")" Size="16" />
+                    <span class="move-option-name">@option.Name</span>
+                    @if (hasPicked && selected == option.Id)
+                    {
+                        <Icon Name="check" Size="16" />
+                    }
+                </button>
+            }
+        </div>
+        @if (Note.Length > 0)
+        {
+            <p class="move-note">@Note</p>
+        }
+        <div class="modal-actions">
+            <button type="button" class="btn" @onclick="() => OnClose.InvokeAsync()">Cancel</button>
+            <button type="button" class="btn btn-primary" disabled="@(!hasPicked)" @onclick="() => OnMove.InvokeAsync(selected)">Move</button>
+        </div>
+    </div>
+}
+
+@code {
+    public sealed record MoveOption(Guid? Id, string Name, int Depth);
+
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public string KindLabel { get; set; } = string.Empty;
+    [Parameter] public string Name { get; set; } = string.Empty;
+    [Parameter] public string Note { get; set; } = string.Empty;
+    [Parameter] public IReadOnlyList<MoveOption> Options { get; set; } = [];
+    [Parameter] public EventCallback<Guid?> OnMove { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private Guid? selected;
+    private bool hasPicked;
+    private bool wasOpen;
+
+    protected override void OnParametersSet()
+    {
+        if (Open == wasOpen) return;
+        wasOpen = Open;
+        selected = null;
+        hasPicked = false;
+    }
+
+    private void Pick(Guid? id)
+    {
+        selected = id;
+        hasPicked = true;
+    }
+}
