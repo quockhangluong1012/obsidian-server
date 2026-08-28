@@ -1,0 +1,214 @@
+@import "tailwindcss";
+
+/* Tailwind v4 theme tokens mapping to design vars */
+@theme {
+  --color-pri: var(--pri);
+  --color-priC: var(--priC);
+  --color-bg: var(--bg);
+  --color-surf: var(--surf);
+  --color-drw: var(--drw);
+  --color-bd: var(--bd);
+  --color-tx: var(--tx);
+  --color-tx2: var(--tx2);
+  --color-code: var(--code);
+  --font-sans: 'Roboto', 'Segoe UI', system-ui, sans-serif;
+  --font-display: 'Newsreader', 'Iowan Old Style', Georgia, serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Roboto Mono', monospace;
+}
+
+/* Default (light) — warm paper journal */
+:root {
+  --bg: #FBFAF7;        /* paper */
+  --surf: #F3F1EC;      /* margin */
+  --drw: #ECEAE3;       /* drawer / sheet */
+  --bd: #E5E2DA;        /* hairline */
+  --tx: #1A1A22;        /* ink */
+  --tx2: #6B6B78;       /* pencil */
+  --pri: #5B3FD9;       /* reading violet */
+  --priC: #FFFFFF;
+  --hov: rgba(91, 63, 217, 0.08);
+  --sel: rgba(91, 63, 217, 0.14);
+  --code: #F0EDE5;
+  --warn: #C2410C;
+  --ok: #1F7A4D;
+  /* type scale */
+  --t-display: 24px;
+  --t-h1: 22px;
+  --t-h2: 19px;
+  --t-body: 16px;
+  --t-ui: 14px;
+  --t-cap: 11px;
+  --t-mono: 12.5px;
+  /* layout */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 22px;
+  --tap: 44px;          /* iOS-friendly minimum tap target */
+  --bar-h: 52px;        /* top app bar / bottom tab bar */
+  --drawer-w: 320px;
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+}
+
+/* Dark — soft graphite */
+.dark {
+  --bg: #13141C;
+  --surf: #1B1D27;
+  --drw: #161823;
+  --bd: #2A2C38;
+  --tx: #EDECE4;
+  --tx2: #8E8F9A;
+  --hov: rgba(255, 255, 255, 0.06);
+  --sel: rgba(142, 118, 255, 0.22);
+  --code: #21232F;
+  --warn: #F87171;
+  --ok: #34D399;
+}
+
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+  background: var(--bg);
+  color: var(--tx);
+}
+button, input, textarea, select { font-family: inherit; }
+a { color: var(--pri); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Hide scrollbars on touch; keep on desktop */
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb { background: rgba(120,124,150,.35); border-radius: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+@media (pointer:coarse) { *::-webkit-scrollbar { width:0; height:0; } }
+
+/* Touch-friendly interactive defaults */
+button, [role="button"], .tap {
+  -webkit-touch-callout: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+/* Material Symbols */
+.material-symbols-rounded {
+  font-family: 'Material Symbols Rounded';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+/* Display face — used for h1, article body, lock screen */
+.font-display { font-family: var(--font-display); font-optical-sizing: auto; }
+
+/* Sheet (mobile modal) primitive */
+.sheet {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 95;
+  background: var(--bg);
+  border-top-left-radius: var(--r-xl);
+  border-top-right-radius: var(--r-xl);
+  border-top: 1px solid var(--bd);
+  box-shadow: 0 -16px 40px rgba(10, 12, 24, 0.28);
+  max-height: 88dvh;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: var(--safe-b);
+  transform: translateY(0);
+  transition: transform 260ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.sheet-handle {
+  width: 40px; height: 4px; border-radius: 2px;
+  background: var(--bd);
+  margin: 8px auto 4px;
+}
+.sheet-backdrop {
+  position: fixed; inset: 0;
+  z-index: 94;
+  background: rgba(10, 12, 24, 0.45);
+  backdrop-filter: saturate(120%) blur(2px);
+  -webkit-backdrop-filter: saturate(120%) blur(2px);
+}
+
+/* Drawer (mobile sidebar) primitive */
+.drawer {
+  position: fixed;
+  top: 0; bottom: 0; left: 0;
+  z-index: 96;
+  width: min(86vw, 340px);
+  background: var(--drw);
+  border-right: 1px solid var(--bd);
+  box-shadow: 8px 0 24px rgba(10, 12, 24, 0.22);
+  display: flex; flex-direction: column;
+  padding-top: var(--safe-t);
+  padding-bottom: var(--safe-b);
+  transform: translateX(0);
+  transition: transform 260ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.drawer-backdrop {
+  position: fixed; inset: 0;
+  z-index: 95;
+  background: rgba(10, 12, 24, 0.45);
+}
+
+/* Reading margin progress (signature element) */
+.read-progress {
+  position: fixed;
+  top: calc(var(--bar-h) + var(--safe-t));
+  bottom: calc(var(--bar-h) + var(--safe-b) + 24px);
+  right: calc(6px + var(--safe-r));
+  width: 2px;
+  background: var(--bd);
+  border-radius: 2px;
+  z-index: 30;
+  pointer-events: none;
+}
+.read-progress-fill {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  background: var(--pri);
+  border-radius: 2px;
+  transition: height 80ms linear;
+}
+.read-progress-tick {
+  position: absolute;
+  right: -2px;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--bd);
+  transform: translateY(-50%);
+}
+
+/* Focus ring (keyboard) */
+:focus-visible {
+  outline: 2px solid var(--pri);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

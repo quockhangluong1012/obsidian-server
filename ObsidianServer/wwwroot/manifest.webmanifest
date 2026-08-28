@@ -1,9 +1,0 @@
-{
-  "name": "Obsidian Lite",
-  "short_name": "Obsidian",
-  "start_url": "/",
-  "display": "standalone",
-  "background_color": "#f5f3ed",
-  "theme_color": "#264653",
-  "icons": [{ "src": "/favicon.png", "sizes": "512x512", "type": "image/png" }]
-}
