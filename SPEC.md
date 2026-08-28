@@ -37,10 +37,15 @@ Web app ghi chú markdown self-hosted, dùng cho **một người**, thay thế 
 | F-07 | Upload / paste ảnh & SVG → lưu DB → chèn link vào note | Cao |
 | F-08 | Hiển thị markdown chuẩn + code highlight + bảng + toán (KaTeX) + sơ đồ (Mermaid) | Cao |
 | F-09 | Hiển thị **inline SVG** (raw HTML) an toàn | Cao |
-| F-10 | Mobile view-only: render, không nạp editor | Cao |
+| F-10 | Mobile: cùng chế độ Chỉnh sửa / Xem trước như desktop | Cao |
 | F-11 | PWA: cài màn hình chính, offline cache note đã xem | Trung bình |
 | F-12 | Export note ra `.md` | Thấp |
 | F-13 | Backup file `.db` (thủ công/script) | Trung bình |
+| F-14 | Command palette (Ctrl/Cmd+K): nhảy nhanh tới note/thư mục | Trung bình |
+| F-15 | Chuột phải (desktop) / nhấn giữ (mobile) trên thư mục, note, tệp đính kèm: menu thao tác (tạo mới, đổi tên, nhân bản, di chuyển, xoá) | Trung bình |
+| F-16 | Kéo-thả note/thư mục/tệp đính kèm để di chuyển trong cây, kể cả thả ra gốc vault | Trung bình |
+| F-17 | Backlinks (`[[Title]]`) và Tags (`#tag`) hiển thị ở panel bên phải | Trung bình |
+| F-18 | Tệp đính kèm (ảnh/SVG đã dán/upload) hiển thị như node trong cây, có trình xem + di chuyển vị trí hiển thị (đường dẫn vật lý `/api/files/{id}` không đổi) | Trung bình |
 
 ### 3.2 Phi chức năng
 - 10.000 note: tìm kiếm & mở note nhanh (SQLite/FTS5 đáp ứng thoải mái).
@@ -144,7 +149,7 @@ obsidian-server/
 |-----|------|---------|
 | Id | TEXT (GUID) | PK |
 | Title | TEXT | Tiêu đề hiển thị (= tên file) |
-| FolderId | TEXT | FK → Folders.Id |
+| FolderId | TEXT nullable | FK → Folders.Id. NULL = nằm ở gốc vault (kéo-thả có thể đưa note ra gốc) |
 | Content | TEXT | Markdown thuần |
 | CreatedAt | TEXT (ISO) | |
 | UpdatedAt | TEXT (ISO) | |
@@ -157,6 +162,8 @@ obsidian-server/
 | ContentType | TEXT | MIME (image/*, image/svg+xml) |
 | Data | BLOB | Bytes |
 | Size | INTEGER | |
+| FolderId | TEXT nullable | Vị trí hiển thị trong cây (khác với đường dẫn vật lý cố định `/api/files/{id}`); NULL = gốc vault |
+| NoteId | TEXT nullable | Note gốc đã dán/upload tệp này |
 | CreatedAt | TEXT (ISO) | |
 
 ### `Notes_FTS` (FTS5)
@@ -181,11 +188,11 @@ obsidian-server/
 - **Chi tiết note**: bố cục ba phần hoặc hai panel — **source (CodeMirror)** | **preview (live)**.
 - Autosave: debounce ~800ms sau khi dừng gõ, hoặc save khi blur.
 
-### 9.2 Mobile (< 768px) — view only
-- Không khởi tạo CodeMirror, không nạp JS editor.
+### 9.2 Mobile (< 768px)
+- Cùng chế độ Chỉnh sửa / Xem trước như desktop (toggle trong thanh công cụ).
 - Điều hướng: **cây thư mục → list note trong folder → view note** (back bằng nút quay lại).
 - Header sticky hiển thị tiêu đề note.
-- Chỉ render nội dung (read-only), không có control sửa.
+- Panel mục lục/backlinks/tags và command palette hiển thị dạng bottom sheet / toàn màn hình.
 - Responsive:
   - `img, svg { max-width: 100%; height: auto; }`
   - Code block & bảng: `overflow-x: auto` (scroll ngang).
