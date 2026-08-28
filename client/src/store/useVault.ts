@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import { TREE, type TreeNode } from '../mock/data'
+import { TREE, type TreeNode, MD } from '../mock/data'
+import { folderApi, noteApi, fileApi, searchApi, type TreeNodeDto, type NoteDto } from '../lib/api'
 
 export type Asset = {
   id: string
@@ -46,6 +47,12 @@ export type VaultState = {
   draft: Draft
   md: string | null
   over: string | null // 'root' or folder id for drag over ring
+  drag: null | { id: string; name: string; kind: 'folder' | 'note' | 'asset' }
+  // backend integration
+  backendTree: TreeNodeDto[] | null
+  treeLoading: boolean
+  noteCache: Record<string, NoteDto>
+  paletteResults: { id: string; name: string; kind: string; path?: string }[]
   // mobile ui
   view: 'library' | 'reading' | 'outline'
   drawer: boolean
@@ -63,7 +70,7 @@ export type VaultState = {
   setTab: (i: number) => void
   startDraft: (kind: 'folder' | 'note', parent?: string | null) => void
   setDraft: (d: Draft) => void
-  commitDraft: () => void
+  commitDraft: () => Promise<void>
   cancelDraft: () => void
   setPalette: (v: boolean) => void
   setQuery: (q: string) => void
@@ -78,10 +85,18 @@ export type VaultState = {
   lockVault: () => void
   setMd: (v: string) => void
   storeAsset: (name: string, mime: string, url: string, curNoteId: string) => void
-  moveNode: (id: string, kind: 'folder' | 'note' | 'asset', target: string, name: string, targetName: string) => void
+  uploadFile: (file: File, curNoteId: string) => Promise<void>
+  moveNode: (id: string, kind: 'folder' | 'note' | 'asset', target: string, name: string, targetName: string) => Promise<void>
   applyMove: () => void
   showToast: (t: string) => void
   setOverRoot: (v: string | null) => void
+  // backend actions
+  loadTree: () => Promise<void>
+  fetchNote: (id: string) => Promise<void>
+  saveNoteContent: (id: string, content: string) => Promise<void>
+  renameNode: (id: string, kind: 'folder' | 'note', newName: string) => Promise<void>
+  deleteNode: (id: string, kind: 'folder' | 'note' | 'asset') => Promise<void>
+  duplicateNote: (id: string) => Promise<void>
 }
 
 function guid() {
@@ -97,6 +112,9 @@ function bytesOfDataUrl(url: string) {
   const i = url.indexOf(',')
   return i < 0 ? 0 : Math.round((url.length - i - 1) * 0.75)
 }
+
+// debounce map for autosave
+const saveTimers = new Map<string, number>()
 
 const initialExpanded: Record<string, boolean> = { bt: true, 'bt-out': true, fosa: true, ta: true, eur: true, tj: true }
 
@@ -133,6 +151,10 @@ export const useVault = create<VaultState>((set, get) => ({
   md: null,
   over: null,
   drag: null,
+  backendTree: null,
+  treeLoading: false,
+  noteCache: {},
+  paletteResults: [],
   view: 'reading',
   drawer: false,
   toggleDark: () => set(s => ({ dark: !s.dark })),
@@ -144,27 +166,50 @@ export const useVault = create<VaultState>((set, get) => ({
   setActive: (id) => set({ active: id }),
   openNote: (id) => {
     const s = get()
+    // already open?
     let idx = s.openTabs.findIndex(t => t.id === id)
     let tabs = s.openTabs.slice()
     if (idx < 0) {
-      // find name from tree
-      const find = (nodes: TreeNode[]): TreeNode | null => {
+      // try to find title from backend tree or fallback
+      let title = 'Note mới'
+      const findInBackend = (nodes: TreeNodeDto[]): string | null => {
         for (const n of nodes) {
-          if (n.id === id) return n
-          if (n.children) { const f = find(n.children); if (f) return f }
+          if (n.id === id) return n.name
+          if (n.children) { const r = findInBackend(n.children); if (r) return r }
         }
         return null
       }
-      const node = find(TREE)
-      const title = node?.name ?? 'Note mới'
+      if (s.backendTree) {
+        const t = findInBackend(s.backendTree)
+        if (t) title = t
+      } else {
+        const find = (nodes: TreeNode[]): TreeNode | null => {
+          for (const n of nodes) {
+            if (n.id === id) return n
+            if (n.children) { const f = find(n.children); if (f) return f }
+          }
+          return null
+        }
+        const node = find(TREE)
+        if (node) title = node.name
+        // also check cache
+        if (s.noteCache[id]) title = s.noteCache[id].title
+      }
       tabs.push({ id, kind: 'note', title, parent: s.folder })
       idx = tabs.length - 1
     }
     set({ active: id, openTabs: tabs, tab: idx, palette: false })
+    // fetch note content async (fire and forget)
+    get().fetchNote(id).catch(() => {})
   },
   setTab: (i) => {
     const t = get().openTabs[i]
-    if (t) set({ tab: i, active: t.id })
+    if (t) {
+      set({ tab: i, active: t.id })
+      if (t.kind === 'note' || t.id.length > 10) {
+        get().fetchNote(t.id).catch(() => {})
+      }
+    }
   },
   startDraft: (kind, parent) => {
     const s = get()
@@ -175,36 +220,84 @@ export const useVault = create<VaultState>((set, get) => ({
   },
   setDraft: (d) => set({ draft: d }),
   cancelDraft: () => set({ draft: null }),
-  commitDraft: () => {
+  commitDraft: async () => {
     const s = get()
     const d = s.draft
     if (!d) return
     const name = d.name.trim()
     if (!name) { set({ draft: null }); return }
-    // check clash via childrenOf logic simplified here — we compute live
+    // check clash via backend tree or live children
     const children = getChildrenLive(d.parent, s)
     if (children.some(n => n.name.toLowerCase() === name.toLowerCase())) {
       set({ draft: { ...d, error: 'Tên này đã tồn tại trong thư mục.' } }); return
     }
-    const id = 'x' + (s.seq + 1)
-    const node: TreeNode = d.kind === 'folder' ? { id, name, children: [] } : { id, name }
-    const key = d.parent || 'root'
-    const extra = { ...s.extra }
-    extra[key] = [...(extra[key] || []), node]
-    const exp = { ...s.expanded }
-    if (d.parent) exp[d.parent] = true
-    if (d.kind === 'folder') {
-      exp[id] = true
-      set({ extra, expanded: exp, draft: null, seq: s.seq + 1, folder: id })
-      get().showToast(`Đã tạo thư mục “${name}”`)
-    } else {
-      const tabs = [...s.openTabs, { id, kind: 'new', title: name, parent: d.parent }]
-      set({ extra, expanded: exp, draft: null, seq: s.seq + 1, openTabs: tabs, tab: tabs.length - 1, active: id, mode: 'edit' as const })
-      get().showToast(`Đã tạo note “${name}”`)
+    const parentForApi = d.parent === 'root' ? null : d.parent
+    try {
+      if (d.kind === 'folder') {
+        const created = await folderApi.create(name, parentForApi)
+        set({ draft: null, expanded: { ...s.expanded, [created.id]: true, ...(d.parent ? { [d.parent]: true } : {}) }, folder: created.id })
+        get().showToast(`Đã tạo thư mục “${name}”`)
+        await get().loadTree()
+      } else {
+        const created = await noteApi.create(name, parentForApi, '')
+        const tabs = [...s.openTabs, { id: created.id, kind: 'note', title: created.title, parent: d.parent }]
+        set({ draft: null, expanded: { ...s.expanded, ...(d.parent ? { [d.parent]: true } : {}) }, openTabs: tabs, tab: tabs.length - 1, active: created.id, mode: 'edit' as const, md: '' })
+        get().showToast(`Đã tạo note “${name}”`)
+        await get().loadTree()
+        // open new note
+        get().fetchNote(created.id).catch(() => {})
+      }
+    } catch (e: any) {
+      // fallback to local mock if backend unavailable
+      if (e?.message?.includes('Failed to fetch') || e?.message?.includes('NetworkError')) {
+        const id = 'x' + (s.seq + 1)
+        const node: TreeNode = d.kind === 'folder' ? { id, name, children: [] } : { id, name }
+        const key = d.parent || 'root'
+        const extra = { ...s.extra }
+        extra[key] = [...(extra[key] || []), node]
+        const exp = { ...s.expanded }
+        if (d.parent) exp[d.parent] = true
+        if (d.kind === 'folder') {
+          exp[id] = true
+          set({ extra, expanded: exp, draft: null, seq: s.seq + 1, folder: id })
+          get().showToast(`Đã tạo thư mục “${name}” (offline)`)
+        } else {
+          const tabs = [...s.openTabs, { id, kind: 'new', title: name, parent: d.parent }]
+          set({ extra, expanded: exp, draft: null, seq: s.seq + 1, openTabs: tabs, tab: tabs.length - 1, active: id, mode: 'edit' as const })
+          get().showToast(`Đã tạo note “${name}” (offline)`)
+        }
+      } else {
+        set({ draft: { ...d, error: e.message || 'Lỗi tạo mới' } })
+      }
     }
   },
   setPalette: (v) => set({ palette: v, query: v ? '' : get().query }),
-  setQuery: (q) => set({ query: q }),
+  setQuery: (q) => {
+    set({ query: q })
+    // trigger search debounce
+    if (!q.trim()) { set({ paletteResults: [] }); return }
+    const doSearch = async () => {
+      try {
+        const res = await searchApi.search(q, 12)
+        // map to paletteResults shape
+        const mapped = res.map((r: any) => ({
+          id: r.id,
+          name: r.title || r.name || '',
+          kind: r.kind || 'note',
+          path: r.snippet || '',
+        }))
+        set({ paletteResults: mapped })
+      } catch {
+        // fallback to local FLAT filter will be handled in component if needed
+        set({ paletteResults: [] })
+      }
+    }
+    // simple debounce via timeout
+    const key = '__palette_search'
+    const prev = (globalThis as any)[key]
+    if (prev) clearTimeout(prev)
+    ;(globalThis as any)[key] = setTimeout(doSearch, 180)
+  },
   setMenu: (m) => set({ menu: m }),
   setMove: (m) => set({ move: m }),
   setAssetOpen: (id) => set({ assetOpen: id }),
@@ -227,15 +320,31 @@ export const useVault = create<VaultState>((set, get) => ({
     try { localStorage.removeItem('obs-vault-unlocked') } catch {}
     set({ locked: true, keyValue: '', keyError: false, menu: null, palette: false })
   },
-  setMd: (v) => set({ md: v }),
+  setMd: (v) => {
+    set({ md: v })
+    const s = get()
+    const curId = s.active
+    // only autosave for real notes (not wf/ch27 mock)
+    if (!curId || curId === 'wf' || curId === 'ch27') return
+    // if note is cached, save with debounce
+    if (!s.noteCache[curId] && s.openTabs.find(t => t.id === curId)?.kind === 'new') return
+    const prev = saveTimers.get(curId)
+    if (prev) window.clearTimeout(prev)
+    const t = window.setTimeout(async () => {
+      try {
+        await get().saveNoteContent(curId, v)
+      } catch {}
+    }, 800)
+    saveTimers.set(curId, t)
+  },
   storeAsset: (name, mime, url, curNoteId) => {
+    // legacy path: keep local preview but also try real upload if url is dataUrl
+    // This is called from old handlePasteStatic that uses FileReader.
+    // We'll keep behavior but also handle via uploadFile for real files elsewhere.
     const s = get()
     const gid = guid()
     const size = fmtSize(bytesOfDataUrl(url))
-    // parent = parentOf(curNoteId) — simplified: use folder state
     const folder = s.folder ? s.folder : 'root'
-    // need parentOf logic for notes: find parent in live tree
-    // fallback to folder
     const parent = (() => {
       const res = findParentLive(curNoteId, s)
       return res ?? folder
@@ -247,34 +356,86 @@ export const useVault = create<VaultState>((set, get) => ({
       upload: { name, size, path: asset.path, phase: 'up' },
       expanded: { ...s.expanded, [parent]: true },
     })
-    // insert into md
-    const base = s.md ?? ''
-    // caller will handle insert; we just store
     setTimeout(() => {
       const cur = get()
       if (cur.upload) set({ upload: { ...cur.upload, phase: 'done' } })
       setTimeout(() => set({ upload: null }), 5200)
     }, 800)
-    // toast
     get().showToast(`Đã dán ${name}`)
-    void base
+    void url
   },
-  moveNode: (id, kind, target, name, targetName) => {
+  uploadFile: async (file, curNoteId) => {
     const s = get()
-    if (kind === 'asset') {
+    const folder = (() => {
+      const res = findParentLive(curNoteId, s)
+      return res ?? s.folder
+    })()
+    const displayFolder = folder === 'root' ? null : folder
+    set({ upload: { name: file.name, size: fmtSize(file.size), path: '/api/files/uploading', phase: 'up' } })
+    try {
+      const att = await fileApi.upload(file, curNoteId, displayFolder || undefined)
+      // map to Asset for UI
+      const asset: Asset = {
+        id: att.id,
+        gid: att.id,
+        name: att.fileName,
+        mime: att.contentType,
+        url: att.url,
+        path: att.path,
+        size: fmtSize(att.size),
+        folder: att.folderId || 'root',
+        note: curNoteId,
+      }
       set({
-        assets: s.assets.map(a => a.id === id ? { ...a, folder: target } : a),
-        expanded: { ...s.expanded, [target]: true },
-        move: null,
+        assets: [...s.assets, asset],
+        upload: { name: att.fileName, size: fmtSize(att.size), path: att.path, phase: 'done' },
+        expanded: { ...s.expanded, [(att.folderId || 'root')]: true },
       })
-      get().showToast(`Đã chuyển “${name}” sang ${targetName} · liên kết trong note không đổi`)
-    } else {
-      set({
-        moved: { ...s.moved, [id]: target },
-        expanded: { ...s.expanded, [target]: true },
-        move: null,
-      })
-      get().showToast(`Đã chuyển “${name}” sang ${targetName}`)
+      setTimeout(() => set({ upload: null }), 3200)
+      await get().loadTree()
+      get().showToast(`Đã tải ${file.name}`)
+      return att as any
+    } catch (e: any) {
+      set({ upload: null })
+      get().showToast(e.message || 'Upload lỗi')
+      throw e
+    }
+  },
+  moveNode: async (id, kind, target, name, targetName) => {
+    const s = get()
+    const apiTarget = target === 'root' ? null : target
+    try {
+      if (kind === 'asset') {
+        await fileApi.move(id, apiTarget)
+      } else if (kind === 'folder') {
+        await folderApi.move(id, apiTarget)
+      } else {
+        await noteApi.move(id, apiTarget)
+      }
+      set({ move: null, expanded: { ...s.expanded, [target]: true } })
+      await get().loadTree()
+      get().showToast(kind === 'asset' ? `Đã chuyển “${name}” sang ${targetName} · liên kết không đổi` : `Đã chuyển “${name}” sang ${targetName}`)
+    } catch (e: any) {
+      // fallback local
+      if (e?.message?.includes('Failed to fetch')) {
+        if (kind === 'asset') {
+          set({
+            assets: s.assets.map(a => a.id === id ? { ...a, folder: target } : a),
+            expanded: { ...s.expanded, [target]: true },
+            move: null,
+          })
+          get().showToast(`Đã chuyển “${name}” sang ${targetName} · liên kết không đổi (offline)`)
+        } else {
+          set({
+            moved: { ...s.moved, [id]: target },
+            expanded: { ...s.expanded, [target]: true },
+            move: null,
+          })
+          get().showToast(`Đã chuyển “${name}” sang ${targetName} (offline)`)
+        }
+      } else {
+        get().showToast(e.message || 'Di chuyển lỗi')
+      }
     }
   },
   applyMove: () => {
@@ -289,10 +450,124 @@ export const useVault = create<VaultState>((set, get) => ({
   },
   setView: (v) => set({ view: v }),
   setDrawer: (v) => set({ drawer: v }),
+  loadTree: async () => {
+    set({ treeLoading: true })
+    try {
+      const tree = await folderApi.tree()
+      set({ backendTree: tree, treeLoading: false })
+      // also sync attachments list to assets for tree rendering fallback?
+      // fetch attachments to populate assets array for legacy helpers (optional)
+      try {
+        const atts = await fileApi.list()
+        const mapped: Asset[] = atts.map(a => ({
+          id: a.id,
+          gid: a.id,
+          name: a.fileName,
+          mime: a.contentType,
+          url: `/api/files/${a.id}`,
+          path: `/api/files/${a.id}`,
+          size: fmtSize(a.size),
+          folder: a.folderId || 'root',
+          note: a.noteId || '',
+        }))
+        // merge: keep local assets that are not yet in backend (offline pasted)
+        const existingIds = new Set(mapped.map(m => m.id))
+        const localOnly = get().assets.filter(a => !existingIds.has(a.id) && a.id.startsWith('a'))
+        set({ assets: [...mapped, ...localOnly] })
+      } catch {}
+    } catch {
+      set({ treeLoading: false })
+      // keep backendTree null -> fallback to mock TREE
+    }
+  },
+  fetchNote: async (id) => {
+    // skip mock ids
+    if (id === 'wf' || id === 'ch27' || id.startsWith('x') || id.startsWith('ai') || id.startsWith('bt') || id.startsWith('tj')) {
+      // for mock notes, use MD
+      set({ md: MD, noteCache: { ...get().noteCache, [id]: { id, title: id, folderId: null, content: MD, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as any } })
+      return
+    }
+    try {
+      const note = await noteApi.get(id)
+      set(s => ({ noteCache: { ...s.noteCache, [id]: note }, md: s.active === id ? note.content : s.md }))
+      // also update tab title
+      const tabs = get().openTabs.map(t => t.id === id ? { ...t, title: note.title } : t)
+      set({ openTabs: tabs })
+    } catch {
+      // fallback to local md or empty
+      if (!get().noteCache[id]) set({ md: '' })
+    }
+  },
+  saveNoteContent: async (id, content) => {
+    if (id === 'wf' || id === 'ch27' || id.startsWith('x')) return
+    const cached = get().noteCache[id]
+    const title = cached?.title || get().openTabs.find(t => t.id === id)?.title || 'Note'
+    try {
+      const updated = await noteApi.update(id, { title, content })
+      set(s => ({ noteCache: { ...s.noteCache, [id]: updated } }))
+    } catch (e: any) {
+      // offline: keep local
+    }
+  },
+  renameNode: async (id, kind, newName) => {
+    try {
+      if (kind === 'folder') await folderApi.rename(id, newName)
+      else if (kind === 'note') await noteApi.update(id, { title: newName })
+      await get().loadTree()
+      get().showToast(`Đã đổi tên thành “${newName}”`)
+    } catch (e: any) {
+      get().showToast(e.message || 'Đổi tên lỗi')
+      throw e
+    }
+  },
+  deleteNode: async (id, kind) => {
+    try {
+      if (kind === 'folder') await folderApi.remove(id)
+      else if (kind === 'note') await noteApi.remove(id)
+      else await fileApi.remove(id)
+      await get().loadTree()
+      // close tab if note
+      if (kind === 'note') {
+        const tabs = get().openTabs.filter(t => t.id !== id)
+        const active = tabs[0]?.id || 'wf'
+        set({ openTabs: tabs.length ? tabs : [{ id: 'wf', kind: 'wf', title: 'WORKFLOW_EXPLAINED' }], active, tab: 0, menu: null })
+      } else {
+        set({ menu: null })
+      }
+      get().showToast('Đã xoá')
+    } catch (e: any) {
+      get().showToast(e.message || 'Xoá lỗi')
+      throw e
+    }
+  },
+  duplicateNote: async (id) => {
+    try {
+      const dup = await noteApi.duplicate(id)
+      await get().loadTree()
+      const tabs = [...get().openTabs, { id: dup.id, kind: 'note', title: dup.title, parent: dup.folderId }]
+      set({ openTabs: tabs, tab: tabs.length - 1, active: dup.id })
+      get().showToast(`Đã nhân bản “${dup.title}”`)
+    } catch (e: any) {
+      get().showToast(e.message || 'Nhân bản lỗi')
+    }
+  },
 }))
 
 // helpers for live tree — reused outside
-export function findRawLive(id: string, s: Pick<VaultState,'extra'|'assets'>): TreeNode | null {
+// Now supports both backendTree and fallback mock TREE
+export function findRawLive(id: string, s: Pick<VaultState, 'extra' | 'assets' | 'backendTree'>): TreeNode | null {
+  // first search backendTree if available
+  if (s.backendTree) {
+    const search = (nodes: TreeNodeDto[]): TreeNodeDto | null => {
+      for (const n of nodes) {
+        if (n.id === id) return n
+        if (n.children) { const r = search(n.children); if (r) return r }
+      }
+      return null
+    }
+    const found = search(s.backendTree)
+    if (found) return { id: found.id, name: found.name, children: found.children as any } as TreeNode
+  }
   let found: TreeNode | null = null
   const scan = (list: TreeNode[]) => {
     for (const n of list) {
@@ -312,16 +587,43 @@ export function findRawLive(id: string, s: Pick<VaultState,'extra'|'assets'>): T
   return found
 }
 
-export function getChildrenLive(parentId: string | null, s: Pick<VaultState,'extra'|'moved'|'assets'>): (TreeNode & {asset?:Asset})[] {
+export function getChildrenLive(parentId: string | null, s: Pick<VaultState, 'extra' | 'moved' | 'assets' | 'backendTree'>): (TreeNode & { asset?: Asset; kind?: string })[] {
+  // if backendTree exists, use it
+  if (s.backendTree) {
+    const findNode = (nodes: TreeNodeDto[], pid: string | null): TreeNodeDto[] | null => {
+      if (pid === null) return nodes
+      for (const n of nodes) {
+        if (n.id === pid) return n.children || []
+        if (n.children) {
+          const r = findNode(n.children, pid)
+          if (r) return r
+        }
+      }
+      return null
+    }
+    const backendChildren = findNode(s.backendTree, parentId)
+    if (backendChildren) {
+      // map TreeNodeDto to TreeNode shape
+      return backendChildren.map(c => {
+        if (c.kind === 'folder') return { id: c.id, name: c.name, children: c.children as any, kind: c.kind } as any
+        if (c.kind === 'asset') {
+          const a = s.assets.find(x => x.id === c.id)
+          return { id: c.id, name: c.name, asset: a || { id: c.id, name: c.name, mime: 'image/*', url: `/api/files/${c.id}`, path: `/api/files/${c.id}`, size: '', folder: parentId || 'root', gid: c.id, note: '' } as Asset, kind: 'asset' } as any
+        }
+        return { id: c.id, name: c.name, kind: 'note' } as any
+      })
+    }
+    // fallback to empty if parent not found in backend but might be mock folder
+  }
   const key = parentId || 'root'
-  const base: TreeNode[] = parentId === null ? TREE : (findRawLive(parentId, s)?.children ?? [])
+  const base: TreeNode[] = parentId === null ? TREE : (findRawLive(parentId, s as any)?.children ?? [])
   const extra = s.extra[key] || []
   const mv = s.moved
   const kept = [...base, ...extra].filter(n => !(n.id in mv) || mv[n.id] === key)
   const incoming: TreeNode[] = []
   for (const nid of Object.keys(mv)) {
     if (mv[nid] !== key || kept.some(k => k.id === nid)) continue
-    const n = findRawLive(nid, s)
+    const n = findRawLive(nid, s as any)
     if (n && !(n as any).asset) incoming.push(n)
   }
   const assets = s.assets.filter(a => a.folder === key).map(a => ({ id: a.id, name: a.name, asset: a } as any))
@@ -329,6 +631,19 @@ export function getChildrenLive(parentId: string | null, s: Pick<VaultState,'ext
 }
 
 export function findParentLive(id: string, s: VaultState): string | null {
+  // if backendTree, search there first
+  if (s.backendTree) {
+    let res: string | null | undefined
+    const scan = (nodes: TreeNodeDto[], pid: string | null) => {
+      for (const n of nodes) {
+        if (res !== undefined) return
+        if (n.id === id) { res = pid || 'root'; return }
+        if (n.children) scan(n.children, n.id)
+      }
+    }
+    scan(s.backendTree, null)
+    if (res !== undefined) return res
+  }
   let res: string | null | undefined
   const scan = (pid: string | null) => {
     for (const n of getChildrenLive(pid, s)) {
@@ -342,7 +657,19 @@ export function findParentLive(id: string, s: VaultState): string | null {
 }
 
 export function folderOptionsLive(s: VaultState) {
-  const out: {id:string; name:string; depth:number}[] = [{ id: 'root', name: 'Vault', depth: 0 }]
+  if (s.backendTree) {
+    const out: { id: string; name: string; depth: number }[] = [{ id: 'root', name: 'Vault', depth: 0 }]
+    const walk = (nodes: TreeNodeDto[], depth: number) => {
+      for (const n of nodes) {
+        if (n.kind !== 'folder') continue
+        out.push({ id: n.id, name: n.name, depth })
+        if (n.children) walk(n.children as TreeNodeDto[], depth + 1)
+      }
+    }
+    walk(s.backendTree, 1)
+    return out
+  }
+  const out: { id: string; name: string; depth: number }[] = [{ id: 'root', name: 'Vault', depth: 0 }]
   const walk = (pid: string | null, depth: number) => {
     for (const n of getChildrenLive(pid, s)) {
       if (!(n as any).children) continue

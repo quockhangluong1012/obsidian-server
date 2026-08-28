@@ -16,19 +16,19 @@
   --font-mono: 'JetBrains Mono', ui-monospace, 'Roboto Mono', monospace;
 }
 
-/* Default (light) — warm paper journal */
+/* Default (light) — clean white */
 :root {
-  --bg: #FBFAF7;        /* paper */
-  --surf: #F3F1EC;      /* margin */
-  --drw: #ECEAE3;       /* drawer / sheet */
-  --bd: #E5E2DA;        /* hairline */
+  --bg: #FFFFFF;        /* paper */
+  --surf: #F7F7F8;      /* margin */
+  --drw: #F4F4F5;       /* drawer / sheet */
+  --bd: #E4E4E7;        /* hairline */
   --tx: #1A1A22;        /* ink */
   --tx2: #6B6B78;       /* pencil */
   --pri: #5B3FD9;       /* reading violet */
   --priC: #FFFFFF;
   --hov: rgba(91, 63, 217, 0.08);
   --sel: rgba(91, 63, 217, 0.14);
-  --code: #F0EDE5;
+  --code: #F4F4F5;
   --warn: #C2410C;
   --ok: #1F7A4D;
   /* type scale */
