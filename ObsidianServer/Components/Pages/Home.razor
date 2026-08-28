@@ -130,7 +130,7 @@
                 else
                 {
                     <div class="content-column editor-column">
-                        <MarkdownEditor NoteId="active.Id" FolderId="active.FolderId" Value="@active.Content" ValueChanged="ContentChangedAsync" />
+                        <MarkdownEditor @ref="editor" NoteId="active.Id" FolderId="active.FolderId" Value="@active.Content" ValueChanged="ContentChangedAsync" />
                     </div>
                 }
             </div>
@@ -292,6 +292,15 @@
     private ElementReference titleInput;
     private ElementReference searchInput;
     private MarkdownPreview? preview;
+    private MarkdownEditor? editor;
+
+    /// <summary>Pulls any in-flight keystroke out of the editor's textarea and pushes it
+    /// through ValueChanged before the parent commits/clears the editor. Without this,
+    /// a click that races the trailing @oninput saves a stale snapshot.</summary>
+    private async Task DrainEditorAsync()
+    {
+        if (editor is not null) await editor.FlushAsync();
+    }
 
     private string SaveMessage => saveState switch
     {
@@ -441,6 +450,7 @@
             return;
         }
 
+        await DrainEditorAsync();
         await FlushSaveAsync();
         var document = await Workspace.GetNoteAsync(id);
         if (document is null)
@@ -480,6 +490,7 @@
     private async Task CreateNoteAsync()
     {
         var folderId = tree.ActiveFolderId ?? active?.FolderId;
+        await DrainEditorAsync();
         await FlushSaveAsync();
         pane = Pane.Files;
         var created = await Workspace.CreateNoteAsync(folderId, UntitledName(folderId));
@@ -491,8 +502,9 @@
     {
         try
         {
-            var copy = await Workspace.DuplicateNoteAsync(id);
+            await DrainEditorAsync();
             await FlushSaveAsync();
+            var copy = await Workspace.DuplicateNoteAsync(id);
             await LoadVaultAsync();
             await ActivateCreatedNoteAsync(copy, focusTitleField: false);
             ToastMessage($"Duplicated as “{copy.Title}”");
@@ -535,8 +547,7 @@
     {
         var position = tabs.IndexOf(id);
         if (position < 0) return;
-
-        if (active?.Id == id) await FlushSaveAsync();
+        if (active?.Id == id) { await DrainEditorAsync(); await FlushSaveAsync(); }
         tabs.RemoveAt(position);
 
         if (active?.Id != id) return;
@@ -882,8 +893,18 @@
 
     private async Task ToggleReadingAsync()
     {
-        reading = !reading;
-        if (reading) await FlushSaveAsync();
+        if (!reading)
+        {
+            // Switching edit -> reading tears the editor down. Drain any in-flight
+            // keystroke first so the save includes the last character.
+            await DrainEditorAsync();
+            reading = true;
+            await FlushSaveAsync();
+        }
+        else
+        {
+            reading = false;
+        }
     }
 
     private void JumpToHeading(int index)

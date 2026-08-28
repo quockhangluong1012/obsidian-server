@@ -73,6 +73,19 @@
         return ValueChanged.InvokeAsync(typed);
     }
 
+    /// <summary>Drains the textarea's current DOM value through ValueChanged so the
+    /// parent sees every keystroke before it decides to persist or tear the editor down.
+    /// Required because @oninput events can race a click that toggles reading view —
+    /// the click can otherwise save a stale snapshot and silently drop the last character.</summary>
+    public async Task FlushAsync()
+    {
+        var current = await JavaScript.InvokeAsync<string>("obsidian.readTextarea", surface);
+        if (string.IsNullOrEmpty(current) && string.IsNullOrEmpty(typed)) return;
+        if (current == typed) return;
+        typed = current;
+        await ValueChanged.InvokeAsync(typed);
+    }
+
     /// <summary>Rewrites the surface with server-inserted markdown (upload, paste).</summary>
     private Task InsertAsync(string markdown)
     {

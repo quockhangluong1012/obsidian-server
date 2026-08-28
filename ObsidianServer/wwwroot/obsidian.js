@@ -131,8 +131,13 @@ window.obsidian = (() => {
         try { await navigator.clipboard.writeText(text); return true; }
         catch { return false; }
     }
+    function readTextarea(element) {
+        if (!element) return '';
+        return element.value ?? '';
+    }
 
-    return { renderMarkdown, uploadPastedImage, scrollToHeading, initTheme, setTheme, focusAndSelect, bindShortcut, copyText };
+
+    return { renderMarkdown, uploadPastedImage, scrollToHeading, initTheme, setTheme, focusAndSelect, bindShortcut, copyText, readTextarea };
 })();
 
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));
