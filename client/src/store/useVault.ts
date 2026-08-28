@@ -67,7 +67,9 @@ export type VaultState = {
   collapseAll: () => void
   setActive: (id: string) => void
   openNote: (id: string) => void
+  openAsset: (id: string) => void
   setTab: (i: number) => void
+  closeTab: (i: number) => void
   startDraft: (kind: 'folder' | 'note', parent?: string | null) => void
   setDraft: (d: Draft) => void
   commitDraft: () => Promise<void>
@@ -116,8 +118,6 @@ function bytesOfDataUrl(url: string) {
 // debounce map for autosave
 const saveTimers = new Map<string, number>()
 
-const initialExpanded: Record<string, boolean> = { bt: true, 'bt-out': true, fosa: true, ta: true, eur: true, tj: true }
-
 export const useVault = create<VaultState>((set, get) => ({
   dark: false,
   accent: '#5B3FD9',
@@ -128,14 +128,11 @@ export const useVault = create<VaultState>((set, get) => ({
   keyError: false,
   reveal: false,
   mode: 'preview',
-  tab: 1,
-  openTabs: [
-    { id: 'wf', kind: 'wf', title: 'WORKFLOW_EXPLAINED' },
-    { id: 'ch27', kind: 'ch27', title: 'Chương 27. Các Định luật Kiến trúc…' },
-  ],
-  active: 'ch27',
-  folder: 'fosa',
-  expanded: initialExpanded,
+  tab: 0,
+  openTabs: [],
+  active: '',
+  folder: null,
+  expanded: {},
   extra: {},
   moved: {},
   assets: [],
@@ -202,13 +199,51 @@ export const useVault = create<VaultState>((set, get) => ({
     // fetch note content async (fire and forget)
     get().fetchNote(id).catch(() => {})
   },
+  openAsset: (id) => {
+    const s = get()
+    let idx = s.openTabs.findIndex(t => t.id === id)
+    let tabs = s.openTabs.slice()
+    if (idx < 0) {
+      let title = s.assets.find(a => a.id === id)?.name || 'Tệp đính kèm'
+      const findInBackend = (nodes: TreeNodeDto[]): string | null => {
+        for (const n of nodes) {
+          if (n.id === id) return n.name
+          if (n.children) { const r = findInBackend(n.children); if (r) return r }
+        }
+        return null
+      }
+      if (s.backendTree) {
+        const t = findInBackend(s.backendTree)
+        if (t) title = t
+      }
+      tabs.push({ id, kind: 'asset', title, parent: s.folder })
+      idx = tabs.length - 1
+    }
+    set({ active: id, openTabs: tabs, tab: idx, palette: false })
+  },
   setTab: (i) => {
     const t = get().openTabs[i]
     if (t) {
       set({ tab: i, active: t.id })
-      if (t.kind === 'note' || t.id.length > 10) {
+      if (t.kind !== 'asset' && (t.kind === 'note' || t.id.length > 10)) {
         get().fetchNote(t.id).catch(() => {})
       }
+    }
+  },
+  closeTab: (i) => {
+    const s = get()
+    const tabs = s.openTabs.slice()
+    if (i < 0 || i >= tabs.length) return
+    tabs.splice(i, 1)
+    if (tabs.length === 0) {
+      set({ openTabs: [], tab: 0, active: '' })
+      return
+    }
+    const nextTab = i < s.tab ? s.tab - 1 : Math.min(s.tab, tabs.length - 1)
+    const t = tabs[nextTab]
+    set({ openTabs: tabs, tab: nextTab, active: t.id })
+    if (t.kind !== 'asset' && (t.kind === 'note' || t.id.length > 10)) {
+      get().fetchNote(t.id).catch(() => {})
     }
   },
   startDraft: (kind, parent) => {
@@ -324,8 +359,7 @@ export const useVault = create<VaultState>((set, get) => ({
     set({ md: v })
     const s = get()
     const curId = s.active
-    // only autosave for real notes (not wf/ch27 mock)
-    if (!curId || curId === 'wf' || curId === 'ch27') return
+    if (!curId) return
     // if note is cached, save with debounce
     if (!s.noteCache[curId] && s.openTabs.find(t => t.id === curId)?.kind === 'new') return
     const prev = saveTimers.get(curId)
@@ -451,6 +485,7 @@ export const useVault = create<VaultState>((set, get) => ({
   setView: (v) => set({ view: v }),
   setDrawer: (v) => set({ drawer: v }),
   loadTree: async () => {
+    if (get().treeLoading) return
     set({ treeLoading: true })
     try {
       const tree = await folderApi.tree()
@@ -482,7 +517,7 @@ export const useVault = create<VaultState>((set, get) => ({
   },
   fetchNote: async (id) => {
     // skip mock ids
-    if (id === 'wf' || id === 'ch27' || id.startsWith('x') || id.startsWith('ai') || id.startsWith('bt') || id.startsWith('tj')) {
+    if (id.startsWith('x') || id.startsWith('ai') || id.startsWith('bt') || id.startsWith('tj')) {
       // for mock notes, use MD
       set({ md: MD, noteCache: { ...get().noteCache, [id]: { id, title: id, folderId: null, content: MD, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as any } })
       return
@@ -499,7 +534,7 @@ export const useVault = create<VaultState>((set, get) => ({
     }
   },
   saveNoteContent: async (id, content) => {
-    if (id === 'wf' || id === 'ch27' || id.startsWith('x')) return
+    if (id.startsWith('x')) return
     const cached = get().noteCache[id]
     const title = cached?.title || get().openTabs.find(t => t.id === id)?.title || 'Note'
     try {
@@ -529,8 +564,7 @@ export const useVault = create<VaultState>((set, get) => ({
       // close tab if note
       if (kind === 'note') {
         const tabs = get().openTabs.filter(t => t.id !== id)
-        const active = tabs[0]?.id || 'wf'
-        set({ openTabs: tabs.length ? tabs : [{ id: 'wf', kind: 'wf', title: 'WORKFLOW_EXPLAINED' }], active, tab: 0, menu: null })
+        set({ openTabs: tabs, active: tabs[0]?.id || '', tab: 0, menu: null })
       } else {
         set({ menu: null })
       }

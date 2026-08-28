@@ -15,8 +15,9 @@ public class VercelBlobAttachmentStorage : IAttachmentStorage
         _opt = opt.Value;
         _log = log;
         _http = http;
-        _http.BaseAddress = new Uri(_opt.BaseUrl.TrimEnd('/') + "/");
     }
+
+    private Uri StoreBase => new(_opt.BaseUrl.TrimEnd('/') + "/");
 
     public bool IsRemote => true;
 
@@ -44,8 +45,15 @@ public class VercelBlobAttachmentStorage : IAttachmentStorage
         }
         var key = (_opt.KeyPrefix.TrimEnd('/') + "/" + id + ext).TrimStart('/');
 
-        var url = "v2/blob/upload?" + (_opt.AddRandomSuffix ? "addRandomSuffix=1&" : "") + "pathname=" + Uri.EscapeDataString(key);
-        var req = new HttpRequestMessage(HttpMethod.Post, url);
+        // Vercel Blob direct upload: PUT {storeBaseUrl}/{pathname}[?addRandomSuffix=1]
+        // Use absolute URI to avoid HttpClient relative-URI query escaping.
+        var uploadUri = new Uri(StoreBase, key);
+        if (_opt.AddRandomSuffix)
+        {
+            var ub = new UriBuilder(uploadUri) { Query = "addRandomSuffix=1" };
+            uploadUri = ub.Uri;
+        }
+        var req = new HttpRequestMessage(HttpMethod.Put, uploadUri);
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _opt.Token);
         req.Headers.Add("x-content-type", contentType);
 
@@ -67,17 +75,26 @@ public class VercelBlobAttachmentStorage : IAttachmentStorage
 
         using var doc = JsonDocument.Parse(body);
         var root = doc.RootElement;
-        return new StoredBlob(
-            Url: root.GetProperty("url").GetString() ?? throw new InvalidOperationException("Vercel Blob response missing 'url'"),
-            Pathname: key
-        );
+        var returnedUrl = root.GetProperty("url").GetString() ?? throw new InvalidOperationException("Vercel Blob response missing 'url'");
+        var returnedPath = root.TryGetProperty("pathname", out var pn) ? pn.GetString() ?? key : key;
+        return new StoredBlob(Url: returnedUrl, Pathname: returnedPath);
     }
 
-    public Task<Stream?> OpenReadAsync(string pathname, CancellationToken ct = default)
+    public async Task<Stream?> OpenReadAsync(string pathname, CancellationToken ct = default)
     {
-        // Vercel Blob reads happen via the public URL directly. We do not proxy bytes through
-        // the .NET server in remote mode — the client should hit the blob URL straight.
-        return Task.FromResult<Stream?>(null);
+        // The store is private, so reads need the same Bearer token as uploads/deletes.
+        // Proxy the bytes through the server instead of redirecting the browser to the blob URL.
+        var url = new Uri(StoreBase, pathname);
+        var req = new HttpRequestMessage(HttpMethod.Get, url);
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _opt.Token);
+
+        var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            resp.Dispose();
+            return null;
+        }
+        return await resp.Content.ReadAsStreamAsync(ct);
     }
 
     public async Task<StoredBlobDelete> DeleteAsync(string pathname, CancellationToken ct = default)
@@ -85,7 +102,7 @@ public class VercelBlobAttachmentStorage : IAttachmentStorage
         if (string.IsNullOrWhiteSpace(_opt.Token))
             return new StoredBlobDelete(false, "token missing");
 
-        var url = "v2/blob/" + Uri.EscapeDataString(pathname);
+        var url = new Uri(StoreBase, pathname);
         var req = new HttpRequestMessage(HttpMethod.Delete, url);
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _opt.Token);
 

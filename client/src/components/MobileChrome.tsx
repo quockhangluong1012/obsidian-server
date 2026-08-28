@@ -33,7 +33,7 @@ export function TopBar() {
       </div>
       <div className="min-w-0 flex flex-col items-center justify-center text-center">
         <div className="text-[11px] tracking-[0.1em] uppercase text-[var(--tx2)] leading-none">
-          {cur?.kind === 'wf' ? 'Workflow' : cur?.kind === 'ch27' ? 'Đang đọc' : cur?.kind === 'new' ? 'Note mới' : 'Vault'}
+          {!cur ? 'Vault' : cur.kind === 'new' ? 'Note mới' : cur.kind === 'asset' ? 'Tệp đính kèm' : 'Đang đọc'}
         </div>
         <div className="mt-0.5 w-full max-w-full font-display text-[15px] font-medium leading-tight overflow-hidden text-ellipsis whitespace-nowrap text-[var(--tx)]">
           {title}

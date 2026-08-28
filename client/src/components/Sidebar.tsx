@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useVault, getChildrenLive, findParentLive, type VaultState } from '../store/useVault'
 import { FLAT } from '../mock/data'
 
@@ -16,10 +16,6 @@ export function SidebarBody() {
   const s = useVault()
   const scrollRef = useRef<HTMLDivElement>(null)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
-  useEffect(() => {
-    // initial load + reload when needed (e.g., first mount)
-    if (!s.backendTree && !s.treeLoading) s.loadTree()
-  }, [])
   const rows = buildRows(s, hoveredId, setHoveredId)
   const count = (() => {
     if (s.backendTree) {
@@ -247,7 +243,7 @@ function buildRows(s: VaultState, hoveredId: string | null, setHoveredId: (id: s
           key={k}
           onClick={() => {
             if (isFolder) { s.toggle(n.id); useVault.setState({ folder: n.id }) }
-            else if (isAsset) s.setAssetOpen(n.id)
+            else if (isAsset) { s.openAsset(n.id); s.setView('reading') }
             else { s.openNote(n.id); s.setView('reading') }
           }}
           onContextMenu={(e) => {

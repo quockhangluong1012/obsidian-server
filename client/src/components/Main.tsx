@@ -1,7 +1,6 @@
-import { useRef, useEffect, useMemo } from 'react'
+import { useRef, useEffect, useMemo, useState } from 'react'
 import { useVault, getChildrenLive } from '../store/useVault'
 import type { VaultState } from '../store/useVault'
-import { MD } from '../mock/data'
 import { useViewport } from '../hooks/useViewport'
 import { renderMarkdown } from '../lib/markdown'
 
@@ -23,37 +22,32 @@ export function Main() {
   const s = useVault()
   const { isPhone } = useViewport()
   const mdRef = useRef<HTMLTextAreaElement | null>(null)
-  const cur = s.openTabs[s.tab] ?? s.openTabs[0] ?? { kind: 'ch27', id: 'ch27', title: '' }
+  const activeTab = s.openTabs[s.tab] ?? s.openTabs[0]
+  const hasTab = !!activeTab
+  const cur = activeTab ?? { kind: '', id: '', title: '' }
   const isNew = cur.kind === 'new'
-  const isMockCh27 = cur.id === 'ch27'
-  const isMockWf = cur.id === 'wf'
-  const isRealNote = !isMockCh27 && !isMockWf && !isNew
+  const isAsset = cur.kind === 'asset'
+  const isRealNote = hasTab && !isNew && !isAsset
 
   const onStyle: React.CSSProperties = { background: 'var(--pri)', color: 'var(--priC)' }
   const offStyle: React.CSSProperties = { background: 'transparent', color: 'var(--tx2)' }
 
-  const livePath = pathTo(cur.id, s)
-  const crumbNames = (isNew ? livePath.slice(0, -1) : livePath).length
-    ? (isNew ? livePath.slice(0, -1) : livePath)
-    : cur.kind === 'ch27'
-      ? ['Book Translate', 'Translated Book', 'Fundamental Of Software Architecture', 'Chương 27. Các Định luật Kiến trúc Phần mềm, Nhìn lại']
-      : cur.kind === 'wf'
-        ? ['Trading Journal', 'WORKFLOW_EXPLAINED']
-        : []
+  const livePath = hasTab ? pathTo(cur.id, s) : []
+  const crumbNames = isNew ? livePath.slice(0, -1) : livePath
 
   // fetch note content when active changes
   useEffect(() => {
     if (isRealNote) s.fetchNote(cur.id)
-  }, [cur.id])
+  }, [cur.id, isRealNote])
 
   const cached = s.noteCache[cur.id]
-  const mdValue = isRealNote ? (s.md ?? cached?.content ?? '') : (s.md ?? MD)
+  const mdValue = s.md ?? cached?.content ?? ''
   const pastedFigs = s.assets.filter((a) => a.note === cur.id)
 
-  const showPreview = (isMockCh27 && s.mode === 'preview') || (isRealNote && s.mode === 'preview')
-  const showEditor = (isMockCh27 && s.mode === 'edit') || (isRealNote && s.mode === 'edit')
-  const showOtherTab = isMockWf
+  const showPreview = isRealNote && s.mode === 'preview'
+  const showEditor = isRealNote && s.mode === 'edit'
   const showNew = isNew
+  const showAsset = isAsset
 
   return (
     <main className="flex-1 min-w-0 min-h-0 flex flex-col bg-[var(--bg)]">
@@ -61,6 +55,7 @@ export function Main() {
         <DesktopTopChrome
           cur={cur}
           isNew={isNew}
+          isAsset={isAsset}
           crumbNames={crumbNames}
           onStyle={onStyle}
           offStyle={offStyle}
@@ -72,11 +67,8 @@ export function Main() {
       )}
 
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain relative">
-        {showPreview && (
-          isMockCh27
-            ? <PreviewArticle pastedFigs={pastedFigs} showProgress={isPhone} />
-            : <NotePreview md={mdValue} pastedFigs={pastedFigs} />
-        )}
+        {!hasTab && (s.treeLoading ? <LoadingState /> : <EmptyState />)}
+        {showPreview && <NotePreview md={mdValue} pastedFigs={pastedFigs} />}
         {showEditor && (
           <EditorSurface
             mdRef={mdRef}
@@ -86,13 +78,10 @@ export function Main() {
             isPhone={isPhone}
           />
         )}
-        {showOtherTab && <WorkflowArticle />}
         {showNew && (
           <NewNoteSurface cur={cur} livePath={livePath} isPhone={isPhone} onStartEdit={() => s.setMode('edit')} />
         )}
-        {isRealNote && !showPreview && !showEditor && !showNew && !showOtherTab && (
-          <NotePreview md={mdValue} pastedFigs={pastedFigs} />
-        )}
+        {showAsset && <AssetArticle assetId={cur.id} />}
       </div>
 
       {!isPhone && <DesktopStatusBar />}
@@ -100,15 +89,36 @@ export function Main() {
   )
 }
 
+function EmptyState() {
+  return (
+    <div className="h-full flex flex-col items-center justify-center gap-2 text-center px-6">
+      <span className="material-symbols-rounded text-[40px] opacity-40">note_stack</span>
+      <div className="text-[15px] font-medium text-[var(--tx)]">Chưa có note nào được mở</div>
+      <div className="text-[13px] text-[var(--tx2)]">Chọn một note trong thư viện hoặc tạo note mới để bắt đầu.</div>
+    </div>
+  )
+}
+
+function LoadingState() {
+  return (
+    <div className="h-full flex flex-col items-center justify-center gap-2 text-center px-6">
+      <span className="material-symbols-rounded text-[32px] opacity-50 animate-spin">progress_activity</span>
+      <div className="text-[13px] text-[var(--tx2)]">Đang tải vault...</div>
+    </div>
+  )
+}
+
 function DesktopTopChrome({
   cur,
   isNew,
+  isAsset,
   crumbNames,
   onStyle,
   offStyle,
 }: {
   cur: { id: string; title: string }
   isNew: boolean
+  isAsset: boolean
   crumbNames: string[]
   onStyle: React.CSSProperties
   offStyle: React.CSSProperties
@@ -130,7 +140,13 @@ function DesktopTopChrome({
             }}
           >
             <span className="overflow-hidden text-ellipsis whitespace-nowrap">{t.title || 'Không có tiêu đề'}</span>
-            <span className="material-symbols-rounded text-base opacity-55">close</span>
+            <span
+              onClick={(e) => { e.stopPropagation(); s.closeTab(i) }}
+              title="Đóng"
+              className="material-symbols-rounded text-base opacity-55 rounded-full hover:bg-[var(--hov)] hover:opacity-100"
+            >
+              close
+            </span>
           </div>
         ))}
         <button
@@ -179,35 +195,39 @@ function DesktopTopChrome({
             />
           )}
         </div>
-        <div className="flex shrink-0 p-0.5 gap-0.5 rounded-lg bg-[var(--surf)] border border-[var(--bd)]">
-          <div
-            onClick={() => s.setMode('edit')}
-            title="Chỉnh sửa"
-            className="flex items-center gap-1.5 h-7 px-3 rounded-[6px] cursor-pointer text-[12.5px] font-medium"
-            style={s.mode === 'edit' ? onStyle : offStyle}
-          >
-            <span className="material-symbols-rounded text-base">edit_note</span><span>Chỉnh sửa</span>
+        {!isAsset && (
+          <div className="flex shrink-0 p-0.5 gap-0.5 rounded-lg bg-[var(--surf)] border border-[var(--bd)]">
+            <div
+              onClick={() => s.setMode('edit')}
+              title="Chỉnh sửa"
+              className="flex items-center gap-1.5 h-7 px-3 rounded-[6px] cursor-pointer text-[12.5px] font-medium"
+              style={s.mode === 'edit' ? onStyle : offStyle}
+            >
+              <span className="material-symbols-rounded text-base">edit_note</span><span>Chỉnh sửa</span>
+            </div>
+            <div
+              onClick={() => s.setMode('preview')}
+              title="Xem trước"
+              className="flex items-center gap-1.5 h-7 px-3 rounded-[6px] cursor-pointer text-[12.5px] font-medium"
+              style={s.mode === 'preview' ? onStyle : offStyle}
+            >
+              <span className="material-symbols-rounded text-base">visibility</span><span>Xem trước</span>
+            </div>
           </div>
-          <div
-            onClick={() => s.setMode('preview')}
-            title="Xem trước"
-            className="flex items-center gap-1.5 h-7 px-3 rounded-[6px] cursor-pointer text-[12.5px] font-medium"
-            style={s.mode === 'preview' ? onStyle : offStyle}
+        )}
+        {!isAsset && (
+          <button
+            onClick={() => s.setPanel(!s.panel)}
+            title="Mục lục"
+            className="grid place-items-center w-[30px] h-[30px] shrink-0 rounded-full"
+            style={{
+              background: s.panel ? (s.dark ? 'rgba(142,118,255,.22)' : 'rgba(91,63,217,.14)') : 'transparent',
+              color: s.panel ? 'var(--pri)' : 'var(--tx2)',
+            }}
           >
-            <span className="material-symbols-rounded text-base">visibility</span><span>Xem trước</span>
-          </div>
-        </div>
-        <button
-          onClick={() => s.setPanel(!s.panel)}
-          title="Mục lục"
-          className="grid place-items-center w-[30px] h-[30px] shrink-0 rounded-full"
-          style={{
-            background: s.panel ? (s.dark ? 'rgba(142,118,255,.22)' : 'rgba(91,63,217,.14)') : 'transparent',
-            color: s.panel ? 'var(--pri)' : 'var(--tx2)',
-          }}
-        >
-          <span className="material-symbols-rounded text-[19px]">format_list_bulleted</span>
-        </button>
+            <span className="material-symbols-rounded text-[19px]">format_list_bulleted</span>
+          </button>
+        )}
         <button className="grid place-items-center w-[30px] h-[30px] shrink-0 rounded-full bg-transparent text-[var(--tx2)] hover:bg-[var(--hov)]">
           <span className="material-symbols-rounded text-[19px]">more_vert</span>
         </button>
@@ -244,60 +264,6 @@ function PhoneEditPreviewToggle({ onStyle, offStyle }: { onStyle: React.CSSPrope
   )
 }
 
-function PreviewArticle({
-  pastedFigs,
-  showProgress,
-}: {
-  pastedFigs: { name: string; url: string; path: string; folder: string }[]
-  showProgress: boolean
-}) {
-  return (
-    <article className="font-display max-w-[760px] mx-auto px-5 md:px-10 py-6 md:py-12 pb-32 text-[17px] leading-[1.7]">
-      <h1 className="m-0 mb-5 md:mb-7 text-[28px] md:text-[34px] leading-[1.22] font-bold tracking-[-0.015em]">
-        Chương 27. Các Định luật Kiến trúc Phần mềm, Nhìn lại (The Laws of Software Architecture, Revisited)
-      </h1>
-      <p className="m-0 mb-[18px]">
-        Khi chúng tôi bắt đầu viết cuốn sách này, chúng tôi đã đặt ra một bộ <strong className="font-bold">tám định luật kiến trúc phần mềm</strong> — những nguyên tắc cốt lõi mà chúng tôi tin rằng mọi kiến trúc sư nên hiểu và áp dụng. Bây giờ, khi cuốn sách đã hoàn thành, chúng tôi muốn <strong className="font-bold">nhìn lại (revisit)</strong> những định luật này trong bối cảnh của tất cả những gì chúng tôi đã trình bày.
-      </p>
-      <p className="m-0 mb-3">Trong chương này, chúng tôi sẽ:</p>
-      <ul className="m-0 mb-[24px] pl-[24px] flex flex-col gap-2 list-disc">
-        <li>Tổng kết tám định luật kiến trúc phần mềm</li>
-        <li>Kết nối mỗi định luật với các chương cụ thể trong cuốn sách</li>
-        <li>Thảo luận về cách áp dụng từng định luật trong thực tế</li>
-        <li>Chia sẻ suy nghĩ cuối cùng về vai trò của kiến trúc sư phần mềm</li>
-      </ul>
-      <h2 className="m-0 mb-4 text-[22px] md:text-[25px] leading-[1.3] font-bold tracking-[-0.01em]">Tám Định luật Kiến trúc Phần mềm (The Eight Laws of Software Architecture)</h2>
-      <p className="m-0 mb-5">
-        Chúng tôi đã giới thiệu tám định luật kiến trúc phần mềm ở đầu cuốn sách. Bây giờ, hãy xem lại chúng trong <strong className="font-bold">Hình 27-1</strong>.
-      </p>
-      <figure className="m-0 mb-7">
-        <div className="h-[200px] md:h-[230px] border border-[var(--bd)] rounded-lg bg-[repeating-linear-gradient(135deg,var(--surf)_0_9px,var(--bg)_9px_18px)] grid place-items-center">
-          <span className="font-mono text-[11.5px] tracking-[0.06em] text-[var(--tx2)] uppercase text-center px-3">hình 27-1 · sơ đồ tám định luật</span>
-        </div>
-        <figcaption className="mt-2.5 text-center text-[13px] font-medium text-[var(--tx2)]">Tám định luật kiến trúc phần mềm</figcaption>
-      </figure>
-      <h3 className="m-0 mb-3 text-[18px] md:text-[19px] font-bold">Định luật 1. Mọi thứ trong kiến trúc phần mềm đều là sự đánh đổi</h3>
-      <p className="m-0 mb-5">
-        Không có lựa chọn kiến trúc nào chỉ mang lại lợi ích. Mỗi quyết định đều lấy một thuộc tính chất lượng để đổi cho một thuộc tính khác, và công việc của kiến trúc sư là làm cho sự đánh đổi đó trở nên hiển nhiên với tất cả các bên liên quan.
-      </p>
-      <blockquote className="m-0 mb-6 p-3.5 px-[18px] border-l-[3px] border-[var(--pri)] rounded-r-lg bg-[var(--surf)] text-[16px] md:text-base">
-        Nếu một kiến trúc sư nghĩ rằng họ đã tìm ra một lựa chọn không có sự đánh đổi, nghĩa là họ chưa nhận ra sự đánh đổi đó.
-      </blockquote>
-      {pastedFigs.map((fg, i) => (
-        <figure key={i} className="m-0 mb-6">
-          <img alt={fg.name} src={fg.url} className="block max-w-full w-auto h-auto rounded-lg border border-[var(--bd)] bg-[var(--surf)]" />
-          <figcaption className="mt-2.5 flex flex-wrap items-center gap-2 text-[12.5px] text-[var(--tx2)]">
-            <span className="font-medium">{fg.name}</span>
-            <code className="font-mono text-[11.5px] px-1.5 py-0.5 rounded bg-[var(--code)]">{fg.path}</code>
-            <span className="flex items-center gap-1"><span className="material-symbols-rounded text-sm">folder</span>{fg.folder}</span>
-          </figcaption>
-        </figure>
-      ))}
-      {showProgress && <ReadingProgress />}
-    </article>
-  )
-}
-
 function EditorSurface({
   mdRef,
   mdValue,
@@ -329,22 +295,6 @@ function EditorSurface({
         style={{ fontSize: isPhone ? '16px' : undefined }}
       />
     </div>
-  )
-}
-
-function WorkflowArticle() {
-  return (
-    <article className="font-display max-w-[760px] mx-auto px-5 md:px-10 py-6 md:py-12 pb-32 text-[17px] leading-[1.7]">
-      <h1 className="m-0 mb-5 text-[26px] md:text-[32px] leading-[1.25] font-bold tracking-[-0.015em]">WORKFLOW_EXPLAINED</h1>
-      <p className="m-0 mb-5">
-        Quy trình dịch sách gồm bốn bước: đọc bản gốc trong <em>Book to Translate</em>, dịch từng chương sang <em>Translated Book</em>, đối chiếu thuật ngữ, rồi cập nhật trạng thái trong Trading Journal.
-      </p>
-      <ul className="m-0 pl-[24px] flex flex-col gap-2 list-disc">
-        <li>Mỗi chương là một note riêng, đặt tên theo số chương.</li>
-        <li>Thuật ngữ chưa thống nhất đánh dấu bằng <code className="font-mono text-sm px-1.5 py-0.5 rounded bg-[var(--code)]">#cần-review</code>.</li>
-        <li>Bản dịch xong chuyển sang trạng thái <strong className="font-bold">Done</strong>.</li>
-      </ul>
-    </article>
   )
 }
 
@@ -383,6 +333,45 @@ function NewNoteSurface({
           <span className="material-symbols-rounded text-[18px]">edit_note</span>
           Bắt đầu viết
         </button>
+      )}
+    </div>
+  )
+}
+
+function AssetArticle({ assetId }: { assetId: string }) {
+  const s = useVault()
+  const asset = s.assets.find((a) => a.id === assetId)
+  const url = asset?.url || `/api/files/${assetId}`
+  const name = asset?.name || 'Tệp đính kèm'
+  const mime = asset?.mime || 'image/*'
+  const isImage = /^image\//.test(mime)
+  const [imgFailed, setImgFailed] = useState(false)
+
+  useEffect(() => setImgFailed(false), [url])
+
+  return (
+    <div className="max-w-[900px] mx-auto px-5 md:px-10 py-6 md:py-12 pb-32">
+      <div className="mb-4 flex flex-wrap items-center gap-2 text-[13px] text-[var(--tx2)]">
+        <span className="material-symbols-rounded text-lg text-[#C48A2F]">
+          {/svg/.test(mime) ? 'shapes' : isImage ? 'image' : 'draft'}
+        </span>
+        <span className="font-medium text-[var(--tx)]">{name}</span>
+        {asset && <span>· {asset.mime} · {asset.size}</span>}
+      </div>
+      {isImage && !imgFailed ? (
+        <img
+          alt={name}
+          src={url}
+          onError={() => setImgFailed(true)}
+          className="block max-w-full h-auto mx-auto rounded-lg border border-[var(--bd)] bg-[var(--surf)]"
+        />
+      ) : (
+        <div className="flex flex-col items-center justify-center gap-2 rounded-[10px] border border-dashed border-[var(--bd)] bg-[var(--surf)] p-10 text-center text-[var(--tx2)]">
+          <span className="material-symbols-rounded text-[28px] opacity-70">{isImage ? 'broken_image' : 'draft'}</span>
+          <span className="text-[13px]">
+            {isImage ? 'Không tải được ảnh — kiểm tra server hoặc đường dẫn tệp.' : `Không hỗ trợ xem trước cho loại tệp này (${mime}).`}
+          </span>
+        </div>
       )}
     </div>
   )
@@ -490,7 +479,7 @@ function insertSnippetWithUrl(
   snippet: string,
 ) {
   const el = mdRef.current
-  const base = s.md ?? MD
+  const base = s.md ?? ''
   const pos = el && typeof el.selectionStart === 'number' ? el.selectionStart : base.length
   const next = base.slice(0, pos) + snippet + base.slice(pos)
   s.setMd(next)
@@ -510,7 +499,7 @@ function insertSnippet(
   _name?: string,
 ) {
   const el = mdRef.current
-  const base = s.md ?? MD
+  const base = s.md ?? ''
   const pos = el && typeof el.selectionStart === 'number' ? el.selectionStart : base.length
   const actualSnippet = snippet.replace('/api/files/demo', '/api/files/' + (s.assets[s.assets.length - 1]?.gid ?? 'demo'))
   const next = base.slice(0, pos) + actualSnippet + base.slice(pos)
@@ -544,29 +533,3 @@ function NotePreview({ md, pastedFigs }: { md: string; pastedFigs: { name: strin
   )
 }
 
-function ReadingProgress() {
-  const ref = useRef<HTMLDivElement | null>(null)
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const scroller = el.closest('.overflow-y-auto') as HTMLElement | null
-    if (!scroller) return
-    const fill = el.querySelector('.read-progress-fill') as HTMLElement | null
-    const onScroll = () => {
-      const max = scroller.scrollHeight - scroller.clientHeight
-      const pct = max > 0 ? (scroller.scrollTop / max) * 100 : 0
-      if (fill) fill.style.height = pct + '%'
-    }
-    scroller.addEventListener('scroll', onScroll, { passive: true })
-    onScroll()
-    return () => scroller.removeEventListener('scroll', onScroll)
-  }, [])
-  return (
-    <div ref={ref} className="read-progress" aria-hidden>
-      <div className="read-progress-fill" />
-      <div className="read-progress-tick" style={{ top: '25%' }} />
-      <div className="read-progress-tick" style={{ top: '50%' }} />
-      <div className="read-progress-tick" style={{ top: '75%' }} />
-    </div>
-  )
-}

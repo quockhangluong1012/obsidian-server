@@ -32,7 +32,12 @@ public static class FileEndpoints
 
             if (svc.Storage.IsRemote)
             {
-                return TypedResults.Redirect(a.Url, permanent: false, preserveMethod: false);
+                // The blob store is private, so the browser can't fetch a.Url directly (no auth
+                // header on a redirected request) — proxy the bytes through the server instead.
+                var stream = await svc.Storage.OpenReadAsync(a.StoragePath);
+                if (stream == null) return TypedResults.NotFound(new { error = "File missing in storage" });
+                ctx.Response.Headers.CacheControl = "public, max-age=31536000, immutable";
+                return TypedResults.Stream(stream, a.ContentType, enableRangeProcessing: false);
             }
 
             var local = (LocalAttachmentStorage)svc.Storage;
