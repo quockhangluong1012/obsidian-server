@@ -87,6 +87,7 @@ export const noteApi = {
 // ---- Files / Attachments ----
 export const fileApi = {
   list: () => req<AttachmentDto[]>('/api/attachments'),
+  listByNote: (noteId: string) => req<AttachmentDto[]>(`/api/notes/${noteId}/files`),
   upload: async (file: File, noteId?: string | null, folderId?: string | null) => {
     const fd = new FormData();
     fd.append('file', file);

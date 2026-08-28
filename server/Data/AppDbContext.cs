@@ -37,9 +37,11 @@ public class AppDbContext : DbContext
             e.Property(x => x.Id).HasMaxLength(64);
             e.Property(x => x.FileName).IsRequired().HasMaxLength(450);
             e.Property(x => x.StoragePath).IsRequired().HasMaxLength(900);
+            e.Property(x => x.Url).IsRequired().HasMaxLength(2000);
             e.Property(x => x.FolderId).HasMaxLength(64);
             e.Property(x => x.NoteId).HasMaxLength(64);
             e.HasIndex(x => x.FolderId);
+            e.HasIndex(x => x.NoteId);
             e.HasOne(x => x.Folder).WithMany().HasForeignKey(x => x.FolderId).OnDelete(DeleteBehavior.SetNull);
             e.HasOne(x => x.Note).WithMany().HasForeignKey(x => x.NoteId).OnDelete(DeleteBehavior.SetNull);
         });

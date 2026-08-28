@@ -12,28 +12,31 @@ public static class FileEndpoints
         g.MapGet("/attachments", async (AttachmentService svc, string? folderId) =>
         {
             var normalized = folderId == "root" ? null : folderId;
-            // if no folderId filter, return all? For tree we need all, but keep optional
             var list = await svc.ListAsync(null);
             if (normalized != null) list = list.Where(x => x.FolderId == normalized).ToList();
-            return Results.Ok(list.Select(a => new
-            {
-                a.Id,
-                a.FileName,
-                a.ContentType,
-                a.Size,
-                a.FolderId,
-                a.NoteId,
-                a.CreatedAt,
-                url = $"/api/files/{a.Id}",
-                path = $"/api/files/{a.Id}"
-            }));
+            return Results.Ok(list.Select(ToDto));
         });
 
+        // List attachments for a specific note
+        g.MapGet("/notes/{noteId}/files", async (AttachmentService svc, string noteId) =>
+        {
+            var list = await svc.ListByNoteAsync(noteId);
+            return Results.Ok(list.Select(ToDto));
+        });
+
+        // Stream a file by id. For local storage we serve bytes; for remote storage we 302 to the public URL.
         g.MapGet("/files/{id}", async Task<IResult> (AttachmentService svc, string id, HttpContext ctx) =>
         {
             var a = await svc.GetAsync(id);
             if (a == null) return TypedResults.NotFound(new { error = "File not found" });
-            var abs = svc.GetAbsolutePath(a);
+
+            if (svc.Storage.IsRemote)
+            {
+                return TypedResults.Redirect(a.Url, permanent: false, preserveMethod: false);
+            }
+
+            var local = (LocalAttachmentStorage)svc.Storage;
+            var abs = local.GetAbsolutePath(a.StoragePath);
             if (!File.Exists(abs)) return TypedResults.NotFound(new { error = "File missing on disk" });
             ctx.Response.Headers.CacheControl = "public, max-age=31536000, immutable";
             return TypedResults.PhysicalFile(abs, contentType: a.ContentType, enableRangeProcessing: true);
@@ -43,19 +46,7 @@ public static class FileEndpoints
         {
             var a = await svc.GetAsync(id);
             if (a == null) return TypedResults.NotFound(new { error = "File not found" });
-            return TypedResults.Ok(new
-            {
-                a.Id,
-                a.FileName,
-                a.ContentType,
-                a.Size,
-                a.FolderId,
-                a.NoteId,
-                a.CreatedAt,
-                url = $"/api/files/{a.Id}",
-                path = $"/api/files/{a.Id}",
-                storagePath = a.StoragePath
-            });
+            return TypedResults.Ok(ToDto(a));
         });
 
         g.MapPost("/files", async (AttachmentService svc, HttpRequest req) =>
@@ -71,16 +62,7 @@ public static class FileEndpoints
             try
             {
                 var a = await svc.SaveAsync(file, noteId, folderId);
-                return Results.Created($"/api/files/{a.Id}", new
-                {
-                    a.Id,
-                    a.FileName,
-                    a.ContentType,
-                    a.Size,
-                    a.FolderId,
-                    url = $"/api/files/{a.Id}",
-                    path = $"/api/files/{a.Id}"
-                });
+                return Results.Created($"/api/files/{a.Id}", ToDto(a));
             }
             catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
             {
@@ -93,14 +75,7 @@ public static class FileEndpoints
             try
             {
                 var a = await svc.MoveAsync(id, req.TargetFolderId);
-                return Results.Ok(new
-                {
-                    a.Id,
-                    a.FileName,
-                    a.FolderId,
-                    url = $"/api/files/{a.Id}",
-                    path = $"/api/files/{a.Id}"
-                });
+                return Results.Ok(ToDto(a));
             }
             catch (KeyNotFoundException ex) { return Results.NotFound(new { error = ex.Message }); }
             catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
@@ -112,6 +87,19 @@ public static class FileEndpoints
             catch (KeyNotFoundException ex) { return Results.NotFound(new { error = ex.Message }); }
         });
     }
+
+    private static object ToDto(Server.Models.Attachment a) => new
+    {
+        a.Id,
+        a.FileName,
+        a.ContentType,
+        a.Size,
+        a.FolderId,
+        a.NoteId,
+        a.CreatedAt,
+        a.Url,
+        path = a.Url
+    };
 
     public record MoveFileReq(string? TargetFolderId);
 }

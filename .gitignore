@@ -1,1 +1,5 @@
 .vs/*
+server/Server.csproj.user
+server/Properties/PublishProfiles/site88007-WebDeploy.pubxml
+server/Properties/PublishProfiles/site88007-WebDeploy.pubxml.user
+server/dotnet-tools.json
