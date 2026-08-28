@@ -27,8 +27,6 @@ public class AttachmentService
 
     public IAttachmentStorage Storage => _storage;
 
-    public string ResolvePublicUrl(Attachment a) => a.Url;
-
     public Task<List<Attachment>> ListAsync(string? folderId)
     {
         var q = _db.Attachments.AsNoTracking().AsQueryable();
@@ -132,7 +130,7 @@ public class AttachmentService
             FileName = file.FileName,
             ContentType = mime,
             StoragePath = stored.Pathname,
-            Url = stored.Url,
+            Url = $"/api/files/{id}",
             Size = file.Length,
             FolderId = folderId,
             NoteId = noteId

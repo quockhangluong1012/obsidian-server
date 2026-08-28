@@ -50,6 +50,20 @@ public class AppDbContext : DbContext
     public async Task MigrateAndSeedAsync()
     {
         await Database.MigrateAsync();
+        // Legacy remote attachments stored an unauthenticated Vercel Blob URL. Serve them
+        // through the application endpoint, which authenticates the storage request.
+        await Database.ExecuteSqlRawAsync(@"
+            UPDATE n
+            SET Content = REPLACE(n.Content, a.Url, '/api/files/' + a.Id)
+            FROM Notes AS n
+            CROSS JOIN Attachments AS a
+            WHERE a.Url LIKE 'https://%.blob.vercel-storage.com/%'
+              AND n.Content LIKE '%' + a.Url + '%';
+
+            UPDATE Attachments
+            SET Url = '/api/files/' + Id
+            WHERE Url LIKE 'https://%.blob.vercel-storage.com/%';
+        ");
 
         // SQL Server Full-Text Search: enable on DB + create catalog/index over Notes(Title, Content)
         // Safe to re-run; check existence first to avoid SQL errors.

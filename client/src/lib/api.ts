@@ -1,4 +1,8 @@
-const BASE = import.meta.env.VITE_API_BASE_URL ?? '';
+const BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
+
+export function apiUrl(path: string): string {
+  return path.startsWith('/') && BASE ? `${BASE}${path}` : path;
+}
 
 async function req<T>(url: string, opts: RequestInit = {}): Promise<T> {
   const res = await fetch(BASE + url, {
@@ -85,9 +89,18 @@ export const noteApi = {
 };
 
 // ---- Files / Attachments ----
+function proxyAttachmentUrl(path: string): string {
+  return apiUrl(path);
+}
+
+function proxyAttachment(attachment: AttachmentDto): AttachmentDto {
+  const path = `/api/files/${attachment.id}`;
+  return { ...attachment, url: proxyAttachmentUrl(path), path };
+}
+
 export const fileApi = {
-  list: () => req<AttachmentDto[]>('/api/attachments'),
-  listByNote: (noteId: string) => req<AttachmentDto[]>(`/api/notes/${noteId}/files`),
+  list: async () => (await req<AttachmentDto[]>('/api/attachments')).map(proxyAttachment),
+  listByNote: async (noteId: string) => (await req<AttachmentDto[]>(`/api/notes/${noteId}/files`)).map(proxyAttachment),
   upload: async (file: File, noteId?: string | null, folderId?: string | null) => {
     const fd = new FormData();
     fd.append('file', file);
@@ -99,7 +112,7 @@ export const fileApi = {
       try { const j = await res.json(); msg = j.error || msg; } catch {}
       throw new Error(msg);
     }
-    return (await res.json()) as AttachmentDto;
+    return proxyAttachment(await res.json() as AttachmentDto);
   },
   // for pasted SVG text or dataUrl, convert to File before calling upload
   uploadBlob: async (blob: Blob, fileName: string, noteId?: string | null, folderId?: string | null) => {
@@ -109,7 +122,7 @@ export const fileApi = {
   move: (id: string, targetFolderId: string | null) =>
     req<AttachmentDto>(`/api/files/${id}/move`, { method: 'PUT', body: JSON.stringify({ targetFolderId }) }),
   remove: (id: string) => req<void>(`/api/files/${id}`, { method: 'DELETE' }),
-  meta: (id: string) => req<AttachmentDto>(`/api/files/${id}/meta`),
+  meta: async (id: string) => proxyAttachment(await req<AttachmentDto>(`/api/files/${id}/meta`)),
 };
 
 // ---- Search ----

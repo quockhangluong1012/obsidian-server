@@ -57,12 +57,9 @@ public class VercelBlobAttachmentStorage : IAttachmentStorage
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _opt.Token);
         req.Headers.Add("x-content-type", contentType);
 
-        // Stream the body as the raw file content
-        var ms = new MemoryStream();
-        await content.CopyToAsync(ms, ct);
-        ms.Position = 0;
-        var streamContent = new StreamContent(ms);
-        streamContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+        // Send the input stream without buffering the attachment in server memory.
+        var streamContent = new StreamContent(content);
+        streamContent.Headers.ContentType = new MediaTypeHeaderValue(contentType);
         req.Content = streamContent;
 
         using var resp = await _http.SendAsync(req, ct);

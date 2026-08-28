@@ -8,9 +8,7 @@ public interface IAttachmentStorage
 {
     /// <summary>
     /// Upload the given content and return provider-specific URL + pathname.
-    /// For local: URL is /api/files/{id} and pathname is the relative path.
-    /// For Vercel Blob: URL is the public https://... blob URL and pathname is the blob key.
-    /// </summary>
+    /// The application serves every attachment at /api/files/{id}; the provider URL is not exposed to clients.
     Task<StoredBlob> UploadAsync(string id, string fileName, string contentType, Stream content, CancellationToken ct = default);
 
     /// <summary>

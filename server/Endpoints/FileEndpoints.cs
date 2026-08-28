@@ -24,7 +24,7 @@ public static class FileEndpoints
             return Results.Ok(list.Select(ToDto));
         });
 
-        // Stream a file by id. For local storage we serve bytes; for remote storage we 302 to the public URL.
+        // Stream files by id. Private remote blobs are fetched with the server credential.
         g.MapGet("/files/{id}", async Task<IResult> (AttachmentService svc, string id, HttpContext ctx) =>
         {
             var a = await svc.GetAsync(id);
@@ -102,8 +102,8 @@ public static class FileEndpoints
         a.FolderId,
         a.NoteId,
         a.CreatedAt,
-        a.Url,
-        path = a.Url
+        Url = $"/api/files/{a.Id}",
+        path = $"/api/files/{a.Id}"
     };
 
     public record MoveFileReq(string? TargetFolderId);
