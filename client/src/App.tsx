@@ -1,10 +1,9 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Sidebar, SidebarBody } from './components/Sidebar'
 import { Main } from './components/Main'
-import { RightPanel } from './components/RightPanel'
 import { Overlays } from './components/Overlays'
 import { LockScreen } from './components/LockScreen'
-import { TopBar, TabBar } from './components/MobileChrome'
+import { TopBar } from './components/MobileChrome'
 import { useViewport } from './hooks/useViewport'
 import { useVault } from './store/useVault'
 export default function App() {
@@ -41,6 +40,15 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [s.palette, s.menu, s.move, s.assetOpen, s.drawer, isPhone])
 
+  const paperVars = s.themeMode === 'paper' && !s.dark ? {
+    '--bg': '#FFFBF0',
+    '--surf': '#F7F2E8',
+    '--drw': '#F7F2E8',
+    '--bd': '#E8E0D0',
+    '--tx': '#1E1E24',
+    '--tx2': '#5A5A6A',
+    '--code': '#F4F0E6',
+  } as React.CSSProperties : {}
   const themeVars = {
     '--bg': s.dark ? '#13141C' : '#FFFFFF',
     '--surf': s.dark ? '#1B1D27' : '#F7F7F8',
@@ -53,6 +61,8 @@ export default function App() {
     '--hov': s.dark ? 'rgba(255,255,255,.06)' : 'rgba(91,63,217,.08)',
     '--sel': s.dark ? 'rgba(142,118,255,.22)' : 'rgba(91,63,217,.14)',
     '--code': s.dark ? '#21232F' : '#F4F4F5',
+    ...paperVars,
+    '--reading-scale': String(s.fontScale),
   } as React.CSSProperties
 
   return (
@@ -69,7 +79,6 @@ function DesktopShell() {
     <div className="flex h-[100dvh] w-full bg-[var(--bg)] text-[var(--tx)] font-sans overflow-hidden">
       <Sidebar />
       <Main />
-      <RightPanel />
     </div>
   )
 }
@@ -80,27 +89,33 @@ function PhoneShell() {
     <div className="flex flex-col h-[100dvh] w-full bg-[var(--bg)] text-[var(--tx)] font-sans overflow-hidden">
       <TopBar />
       <div className="flex-1 min-h-0 relative">
-        <div
-          className="absolute inset-0 overflow-y-auto overscroll-contain"
-          style={{ display: s.view === 'library' ? 'block' : 'none' }}
-        >
-          <LibraryPane />
-        </div>
-        <div
-          className="absolute inset-0 flex flex-col"
-          style={{ display: s.view === 'reading' ? 'flex' : 'none' }}
-        >
+        <div className="absolute inset-0 flex flex-col">
           <Main />
         </div>
-        <div
-          className="absolute inset-0 overflow-y-auto overscroll-contain bg-[var(--drw)]"
-          style={{ display: s.view === 'outline' ? 'block' : 'none' }}
-        >
-          <RightPanel forceOpen />
-        </div>
       </div>
-      <TabBar />
       {s.drawer && <Drawer />}
+    </div>
+  )
+}
+
+function ReadingProgress() {
+  const { isPhone } = useViewport()
+  const [w, setW] = useState(0)
+  useEffect(() => {
+    const el = document.getElementById('main-scroll')
+    if (!el || !isPhone) return
+    const onScroll = () => {
+      const max = el.scrollHeight - el.clientHeight
+      setW(max > 0 ? (el.scrollTop / max) * 100 : 0)
+    }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    onScroll()
+    return () => el.removeEventListener('scroll', onScroll)
+  }, [isPhone])
+  if (!isPhone) return null
+  return (
+    <div className="read-progress-hairline" aria-hidden>
+      <div className="read-progress-hairline-fill" style={{ width: `${w}%` }} />
     </div>
   )
 }
@@ -117,7 +132,5 @@ function Drawer() {
   )
 }
 
-function LibraryPane() {
-  return <SidebarBody />
-}
+
 

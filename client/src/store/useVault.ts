@@ -22,7 +22,6 @@ export type VaultState = {
   dark: boolean
   accent: string
   density: 'comfortable' | 'compact'
-  panel: boolean
   locked: boolean
   keyValue: string
   keyError: boolean
@@ -54,14 +53,18 @@ export type VaultState = {
   noteCache: Record<string, NoteDto>
   paletteResults: { id: string; name: string; kind: string; path?: string }[]
   // mobile ui
-  view: 'library' | 'reading' | 'outline'
+  view: 'library' | 'reading'
   drawer: boolean
+  // reading prefs
+  fontScale: number // 0.9 .. 1.15 maps to 16..20px base
+  themeMode: 'light' | 'paper' | 'dark'
   setView: (v: VaultState['view']) => void
   setDrawer: (v: boolean) => void
+  setFontScale: (v: number) => void
+  setThemeMode: (v: VaultState['themeMode']) => void
   // actions
   toggleDark: () => void
   setMode: (m: 'preview' | 'edit') => void
-  setPanel: (v: boolean) => void
   toggle: (id: string) => void
   setExpanded: (e: Record<string, boolean>) => void
   collapseAll: () => void
@@ -122,7 +125,6 @@ export const useVault = create<VaultState>((set, get) => ({
   dark: false,
   accent: '#5B3FD9',
   density: 'comfortable',
-  panel: true,
   locked: false, // for MVP web, unlocked by default — set true if you want lock screen
   keyValue: '',
   keyError: false,
@@ -154,9 +156,17 @@ export const useVault = create<VaultState>((set, get) => ({
   paletteResults: [],
   view: 'reading',
   drawer: false,
-  toggleDark: () => set(s => ({ dark: !s.dark })),
+  fontScale: (() => { try { const v = parseFloat(localStorage.getItem('obs-fontScale')||''); return isNaN(v)?1:Math.min(1.15,Math.max(0.9,v)) } catch { return 1 } })(),
+  themeMode: (() => { try { const v = localStorage.getItem('obs-themeMode') as any; return v==='paper'||v==='dark'||v==='light'?v:'light' } catch { return 'light' } })(),
+  setFontScale: (v) => { try{localStorage.setItem('obs-fontScale',String(v))}catch{}; set({fontScale:v}) },
+  setThemeMode: (v) => { try{localStorage.setItem('obs-themeMode',v)}catch{}; set({themeMode:v, dark: v==='dark'}) },
+  toggleDark: () => set(s => {
+    const nextDark = !s.dark
+    const nextMode: VaultState['themeMode'] = nextDark ? 'dark' : 'light'
+    try{localStorage.setItem('obs-themeMode',nextMode)}catch{}
+    return { dark: nextDark, themeMode: nextMode }
+  }),
   setMode: (m) => set({ mode: m }),
-  setPanel: (v) => set({ panel: v }),
   toggle: (id) => set(s => ({ expanded: { ...s.expanded, [id]: !s.expanded[id] } })),
   setExpanded: (e) => set({ expanded: e }),
   collapseAll: () => set({ expanded: {} }),

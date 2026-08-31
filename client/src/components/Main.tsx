@@ -1,8 +1,9 @@
-import { useRef, useEffect, useMemo, useState } from 'react'
+import { useRef, useEffect, useMemo, useState, useCallback } from 'react'
 import { useVault, getChildrenLive } from '../store/useVault'
 import type { VaultState } from '../store/useVault'
 import { useViewport } from '../hooks/useViewport'
 import { renderMarkdown } from '../lib/markdown'
+import { SvgLightbox } from './SvgLightbox'
 
 const TEXT_ATTACHMENT_MIME = new Set(['application/json', 'text/plain', 'text/markdown', 'text/csv'])
 
@@ -49,8 +50,11 @@ export function Main() {
   const showNew = isNew
   const showAsset = isAsset
 
+  // reading scale for font
+  const readingStyle = { fontSize: `calc(18px * ${s.fontScale})` } as React.CSSProperties
+
   return (
-    <main className="flex-1 min-w-0 min-h-0 flex flex-col bg-[var(--bg)]">
+    <main className="flex-1 min-w-0 min-h-0 flex flex-col bg-[var(--bg)] relative">
       {!isPhone && (
         <DesktopTopChrome
           cur={cur}
@@ -62,11 +66,8 @@ export function Main() {
         />
       )}
 
-      {isPhone && (showPreview || showEditor) && (
-        <PhoneEditPreviewToggle onStyle={onStyle} offStyle={offStyle} />
-      )}
-
-      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain relative">
+      <div id="main-scroll" className="flex-1 min-h-0 overflow-y-auto overscroll-contain relative scroll-pt-16" style={{ paddingBottom: isPhone && (showPreview || showEditor) ? '96px' : undefined }}>
+        {isPhone && <ReadingHairline />}
         {!hasTab && (s.treeLoading ? <LoadingState /> : <EmptyState />)}
         {showPreview && <NotePreview md={mdValue} pastedFigs={pastedFigs} />}
         {showEditor && (
@@ -85,6 +86,31 @@ export function Main() {
       </div>
 
       {!isPhone && <DesktopStatusBar />}
+
+      {isPhone && (showPreview || showEditor) && (
+        <div className="pointer-events-none fixed left-1/2 -translate-x-1/2 z-20 flex justify-center" style={{ bottom: 'calc(14px + var(--safe-b))' }}>
+          <div className="pointer-events-auto flex p-1 gap-1 rounded-full bg-[var(--bg)] border border-[var(--bd)] shadow-[0_8px_28px_rgba(16,18,40,.22)] backdrop-blur supports-[backdrop-filter]:bg-[var(--bg)]/90">
+            <button
+              onClick={() => s.setMode('edit')}
+              className="tap flex items-center gap-1.5 h-9 px-4 rounded-full text-[13px] font-medium transition-colors"
+              style={s.mode === 'edit' ? onStyle : offStyle}
+              aria-pressed={s.mode === 'edit'}
+            >
+              <span className="material-symbols-rounded text-[18px]">edit_note</span>
+              Sửa
+            </button>
+            <button
+              onClick={() => s.setMode('preview')}
+              className="tap flex items-center gap-1.5 h-9 px-4 rounded-full text-[13px] font-medium transition-colors"
+              style={s.mode === 'preview' ? onStyle : offStyle}
+              aria-pressed={s.mode === 'preview'}
+            >
+              <span className="material-symbols-rounded text-[18px]">visibility</span>
+              Đọc
+            </button>
+          </div>
+        </div>
+      )}
     </main>
   )
 }
@@ -215,19 +241,6 @@ function DesktopTopChrome({
             </div>
           </div>
         )}
-        {!isAsset && (
-          <button
-            onClick={() => s.setPanel(!s.panel)}
-            title="Mục lục"
-            className="grid place-items-center w-[30px] h-[30px] shrink-0 rounded-full"
-            style={{
-              background: s.panel ? (s.dark ? 'rgba(142,118,255,.22)' : 'rgba(91,63,217,.14)') : 'transparent',
-              color: s.panel ? 'var(--pri)' : 'var(--tx2)',
-            }}
-          >
-            <span className="material-symbols-rounded text-[19px]">format_list_bulleted</span>
-          </button>
-        )}
         <button className="grid place-items-center w-[30px] h-[30px] shrink-0 rounded-full bg-transparent text-[var(--tx2)] hover:bg-[var(--hov)]">
           <span className="material-symbols-rounded text-[19px]">more_vert</span>
         </button>
@@ -236,33 +249,7 @@ function DesktopTopChrome({
   )
 }
 
-function PhoneEditPreviewToggle({ onStyle, offStyle }: { onStyle: React.CSSProperties; offStyle: React.CSSProperties }) {
-  const s = useVault()
-  return (
-    <div className="flex justify-center shrink-0 py-2 px-4">
-      <div className="flex p-1 gap-1 rounded-full bg-[var(--surf)] border border-[var(--bd)] shadow-sm">
-        <button
-          onClick={() => s.setMode('edit')}
-          className="tap flex items-center gap-1.5 h-9 px-4 rounded-full text-[13px] font-medium"
-          style={s.mode === 'edit' ? onStyle : offStyle}
-          aria-pressed={s.mode === 'edit'}
-        >
-          <span className="material-symbols-rounded text-[18px]">edit_note</span>
-          Sửa
-        </button>
-        <button
-          onClick={() => s.setMode('preview')}
-          className="tap flex items-center gap-1.5 h-9 px-4 rounded-full text-[13px] font-medium"
-          style={s.mode === 'preview' ? onStyle : offStyle}
-          aria-pressed={s.mode === 'preview'}
-        >
-          <span className="material-symbols-rounded text-[18px]">visibility</span>
-          Đọc
-        </button>
-      </div>
-    </div>
-  )
-}
+
 
 function EditorSurface({
   mdRef,
@@ -346,6 +333,7 @@ function AssetArticle({ assetId }: { assetId: string }) {
   const mime = asset?.mime || 'image/*'
   const isImage = /^image\//.test(mime)
   const [imgFailed, setImgFailed] = useState(false)
+  const [lightboxOpen, setLightboxOpen] = useState(false)
 
   useEffect(() => setImgFailed(false), [url])
 
@@ -359,12 +347,29 @@ function AssetArticle({ assetId }: { assetId: string }) {
         {asset && <span>· {asset.mime} · {asset.size}</span>}
       </div>
       {isImage && !imgFailed ? (
-        <img
-          alt={name}
-          src={url}
-          onError={() => setImgFailed(true)}
-          className="block max-w-full h-auto mx-auto rounded-lg border border-[var(--bd)] bg-[var(--surf)]"
-        />
+        <>
+          <div className="relative group mx-auto max-w-full w-fit">
+            <img
+              alt={name}
+              src={url}
+              onError={() => setImgFailed(true)}
+              onClick={() => setLightboxOpen(true)}
+              className="block max-w-full h-auto rounded-xl border border-[var(--bd)] bg-[var(--surf)] cursor-zoom-in"
+              loading="lazy"
+            />
+            <button
+              onClick={() => setLightboxOpen(true)}
+              className="absolute bottom-3 right-3 grid place-items-center w-9 h-9 rounded-full bg-white/90 shadow border border-black/5 text-[var(--tx)] opacity-0 group-hover:opacity-100 transition-opacity"
+              aria-label="Phóng to"
+            >
+              <span className="material-symbols-rounded text-[20px]">zoom_in</span>
+            </button>
+          </div>
+          <div className="text-center mt-3 text-[12px] text-[var(--tx2)] flex items-center justify-center gap-1">
+            <span className="material-symbols-rounded text-[14px]">zoom_in</span> Bấm để phóng to, pinch để zoom
+          </div>
+          <SvgLightbox src={url} alt={name} open={lightboxOpen} onClose={() => setLightboxOpen(false)} />
+        </>
       ) : (
         <div className="flex flex-col items-center justify-center gap-2 rounded-[10px] border border-dashed border-[var(--bd)] bg-[var(--surf)] p-10 text-center text-[var(--tx2)]">
           <span className="material-symbols-rounded text-[28px] opacity-70">{isImage ? 'broken_image' : 'draft'}</span>
@@ -512,23 +517,83 @@ function insertSnippet(
   })
 }
 
-function NotePreview({ md, pastedFigs }: { md: string; pastedFigs: { name: string; url: string; path: string; folder: string }[] }) {
-  const html = useMemo(() => renderMarkdown(md), [md])
+function ReadingHairline() {
+  const [w, setW] = useState(0)
+  useEffect(() => {
+    const el = document.getElementById('main-scroll')
+    if (!el) return
+    const onScroll = () => {
+      const max = el.scrollHeight - el.clientHeight
+      setW(max > 0 ? (el.scrollTop / max) * 100 : 0)
+    }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    onScroll()
+    return () => el.removeEventListener('scroll', onScroll)
+  }, [])
   return (
-    <div className="max-w-[760px] mx-auto px-5 md:px-10 py-6 md:py-12 pb-32">
+    <div className="read-progress-hairline sticky top-0">
+      <div className="read-progress-hairline-fill" style={{ width: `${w}%` }} />
+    </div>
+  )
+}
+
+function NotePreview({ md, pastedFigs }: { md: string; pastedFigs: { name: string; url: string; path: string; folder: string }[] }) {
+  const s = useVault()
+  const html = useMemo(() => renderMarkdown(md), [md])
+  const articleRef = useRef<HTMLDivElement>(null)
+  const [lightbox, setLightbox] = useState<{ src?: string; inlineSvg?: string; alt?: string } | null>(null)
+
+  const onArticleClick = useCallback((e: React.MouseEvent) => {
+    const target = e.target as HTMLElement
+    const img = target.closest('img') as HTMLImageElement | null
+    if (img && img.src) {
+      // only for images inside article
+      if (articleRef.current?.contains(img)) {
+        setLightbox({ src: img.currentSrc || img.src, alt: img.alt || 'Ảnh' })
+        return
+      }
+    }
+    const svg = target.closest('svg') as SVGElement | null
+    if (svg && articleRef.current?.contains(svg)) {
+      setLightbox({ inlineSvg: svg.outerHTML, alt: 'SVG' })
+    }
+  }, [])
+
+  const [figLightbox, setFigLightbox] = useState<string | null>(null)
+
+  return (
+    <div className="prose-measure max-w-[36em] md:max-w-[38em] mx-auto px-5 md:px-10 py-8 md:py-12 pb-32">
       <article
-        className="font-display md-body text-[17px] leading-[1.7]"
+        ref={articleRef}
+        onClick={onArticleClick}
+        className="font-display md-body"
+        style={{ fontSize: `calc(18px * ${s.fontScale})`, lineHeight: 1.85 }}
         dangerouslySetInnerHTML={{ __html: html }}
       />
       {pastedFigs.map((fg, i) => (
-        <figure key={'fig'+i} className="m-0 mb-6 mt-4">
-          <img alt={fg.name} src={fg.url} className="block max-w-full w-auto h-auto rounded-lg border border-[var(--bd)] bg-[var(--surf)]" />
+        <figure key={'fig'+i} className="m-0 mb-6 mt-4 group relative">
+          <img
+            alt={fg.name}
+            src={fg.url}
+            loading="lazy"
+            onClick={() => setFigLightbox(fg.url)}
+            className="block max-w-full w-auto h-auto rounded-xl border border-[var(--bd)] bg-[var(--surf)] cursor-zoom-in"
+          />
+          <button
+            onClick={() => setFigLightbox(fg.url)}
+            className="absolute bottom-2 right-2 grid place-items-center w-8 h-8 rounded-full bg-white/90 shadow border border-black/5 text-[var(--tx)] opacity-0 group-hover:opacity-100 transition-opacity md:opacity-0"
+            aria-label="Phóng to"
+          >
+            <span className="material-symbols-rounded text-[18px]">zoom_in</span>
+          </button>
           <figcaption className="mt-2.5 flex flex-wrap items-center gap-2 text-[12.5px] text-[var(--tx2)]">
             <span className="font-medium">{fg.name}</span>
             <code className="font-mono text-[11.5px] px-1.5 py-0.5 rounded bg-[var(--code)]">{fg.path}</code>
           </figcaption>
         </figure>
       ))}
+      <SvgLightbox src={lightbox?.src} inlineSvg={lightbox?.inlineSvg} alt={lightbox?.alt} open={!!lightbox} onClose={() => setLightbox(null)} />
+      <SvgLightbox src={figLightbox || undefined} alt="Ảnh đính kèm" open={!!figLightbox} onClose={() => setFigLightbox(null)} />
     </div>
   )
 }

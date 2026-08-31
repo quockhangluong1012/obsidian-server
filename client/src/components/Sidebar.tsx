@@ -16,7 +16,8 @@ export function SidebarBody() {
   const s = useVault()
   const scrollRef = useRef<HTMLDivElement>(null)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
-  const rows = buildRows(s, hoveredId, setHoveredId)
+  const isTouchDevice = typeof window !== 'undefined' && window.matchMedia('(hover: none)').matches
+  const rows = buildRows(s, hoveredId, setHoveredId, isTouchDevice)
   const count = (() => {
     if (s.backendTree) {
       let notes = 0, folders = 0
@@ -113,6 +114,7 @@ export function SidebarBody() {
       <div
         ref={scrollRef}
         onDragOver={(e) => {
+          if (isTouchDevice) return
           if (!s.drag) return
           const parent = findParentLive(s.drag.id, s)
           if (parent === 'root') return
@@ -120,10 +122,12 @@ export function SidebarBody() {
           if (s.over !== 'root') s.setOver('root')
         }}
         onDragLeave={(e) => {
+          if (isTouchDevice) return
           if ((e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) return
           if (s.over === 'root') s.setOver(null)
         }}
         onDrop={(e) => {
+          if (isTouchDevice) return
           e.preventDefault()
           const d = s.drag
           if (!d) { s.setOver(null); s.setDrag(null); return }
@@ -132,8 +136,8 @@ export function SidebarBody() {
           s.setOver(null); s.setDrag(null)
           s.moveNode(d.id, d.kind, 'root', d.name, 'Vault')
         }}
-        className="flex-1 overflow-y-auto overscroll-contain px-2 pb-5 rounded-lg"
-        style={{ boxShadow: s.over === 'root' ? `inset 0 0 0 2px var(--pri)` : 'none' }}
+        className="sidebar-scroll flex-1 min-h-0 overflow-y-auto overscroll-contain px-2 pb-5 rounded-lg"
+        style={{ boxShadow: !isTouchDevice && s.over === 'root' ? `inset 0 0 0 2px var(--pri)` : 'none', WebkitOverflowScrolling: 'touch' as any, touchAction: 'pan-y' as any }}
       >
         {rows}
       </div>
@@ -149,7 +153,7 @@ export function SidebarBody() {
 
 type DraftNonNull = { kind: 'folder' | 'note'; parent: string | null; name: string; error: string }
 
-function buildRows(s: VaultState, hoveredId: string | null, setHoveredId: (id: string | null) => void): React.ReactElement[] {
+function buildRows(s: VaultState, hoveredId: string | null, setHoveredId: (id: string | null) => void, isTouchDevice = false): React.ReactElement[] {
   const out: React.ReactElement[] = []
   const exp = s.expanded
   const dense = s.density === 'compact'
@@ -262,17 +266,17 @@ function buildRows(s: VaultState, hoveredId: string | null, setHoveredId: (id: s
           }}
           onMouseEnter={() => { if (!isTouch()) setHoveredId(n.id) }}
           onMouseLeave={() => { if (hoveredId === n.id) setHoveredId(null) }}
-          draggable
-          onDragStart={(e) => {
+          draggable={!isTouchDevice}
+          onDragStart={!isTouchDevice ? (e) => {
             if (e.dataTransfer) {
               e.dataTransfer.effectAllowed = 'move'
               try { e.dataTransfer.setData('text/plain', n.id) } catch {}
             }
             s.setMenu(null)
             s.setDrag({ id: n.id, name: n.name, kind })
-          }}
-          onDragEnd={() => { s.setDrag(null); s.setOver(null) }}
-          onDragOver={isFolder ? (e) => {
+          } : undefined}
+          onDragEnd={!isTouchDevice ? () => { s.setDrag(null); s.setOver(null) } : undefined}
+          onDragOver={isTouchDevice ? undefined : isFolder ? (e) => {
             if (!canDropOn(n.id)) return
             e.preventDefault(); e.stopPropagation()
             if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
@@ -282,8 +286,8 @@ function buildRows(s: VaultState, hoveredId: string | null, setHoveredId: (id: s
             e.stopPropagation()
             if (s.over) s.setOver(null)
           }}
-          onDragLeave={isFolder ? () => { if (s.over === n.id) s.setOver(null) } : undefined}
-          onDrop={isFolder ? (e) => {
+          onDragLeave={isTouchDevice ? undefined : isFolder ? () => { if (s.over === n.id) s.setOver(null) } : undefined}
+          onDrop={isTouchDevice ? undefined : isFolder ? (e) => {
             e.preventDefault(); e.stopPropagation()
             const dd = s.drag
             if (!dd || !canDropOn(n.id)) { s.setDrag(null); s.setOver(null); return }

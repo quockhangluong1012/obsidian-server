@@ -3,6 +3,11 @@ import { useVault, folderOptionsLive, getChildrenLive } from '../store/useVault'
 import type { VaultState, Asset } from '../store/useVault'
 import { FLAT } from '../mock/data'
 import { useViewport } from '../hooks/useViewport'
+import { SvgLightbox } from './SvgLightbox'
+
+function AssetLightboxH(props: { src: string; alt: string; open: boolean; onClose: () => void }) {
+  return <SvgLightbox {...props} />
+}
 
 const TEXT_MIME = new Set(['application/json', 'text/plain', 'text/markdown', 'text/csv'])
 
@@ -10,6 +15,7 @@ function AssetPreview({ asset }: { asset: Asset }) {
   const isImage = /^image\//.test(asset.mime)
   const isText = TEXT_MIME.has(asset.mime)
   const [imgFailed, setImgFailed] = useState(false)
+  const [lightboxOpen, setLightboxOpen] = useState(false)
   const [text, setText] = useState<string | null>(null)
   const [textError, setTextError] = useState<string | null>(null)
 
@@ -37,14 +43,27 @@ function AssetPreview({ asset }: { asset: Asset }) {
 
   if (isImage && !imgFailed) {
     return (
-      <div className="rounded-[10px] border border-[var(--bd)] bg-[var(--surf)] p-3 grid place-items-center">
-        <img
-          alt={asset.name}
-          src={asset.url}
-          onError={() => setImgFailed(true)}
-          className="max-w-full max-h-[60dvh] md:max-h-[42dvh] h-auto block"
-        />
-      </div>
+      <>
+        <div className="relative group rounded-[10px] border border-[var(--bd)] bg-[var(--surf)] p-3 grid place-items-center">
+          <img
+            alt={asset.name}
+            src={asset.url}
+            onError={() => setImgFailed(true)}
+            onClick={() => setLightboxOpen(true)}
+            className="max-w-full max-h-[60dvh] md:max-h-[42dvh] h-auto block cursor-zoom-in"
+            loading="lazy"
+          />
+          <button
+            onClick={() => setLightboxOpen(true)}
+            className="absolute bottom-2 right-2 grid place-items-center w-8 h-8 rounded-full bg-white/90 shadow border border-black/5 text-[var(--tx)] opacity-0 group-hover:opacity-100 transition-opacity"
+            aria-label="Phóng to"
+          >
+            <span className="material-symbols-rounded text-[18px]">zoom_in</span>
+          </button>
+        </div>
+        {/* lazy import to avoid cycle - use dynamic */}
+        <AssetLightboxH src={asset.url} alt={asset.name} open={lightboxOpen} onClose={() => setLightboxOpen(false)} />
+      </>
     )
   }
   if (isImage && imgFailed) {

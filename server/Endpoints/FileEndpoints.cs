@@ -24,21 +24,11 @@ public static class FileEndpoints
             return Results.Ok(list.Select(ToDto));
         });
 
-        // Stream files by id. Private remote blobs are fetched with the server credential.
+        // Stream files by id from local disk.
         g.MapGet("/files/{id}", async Task<IResult> (AttachmentService svc, string id, HttpContext ctx) =>
         {
             var a = await svc.GetAsync(id);
             if (a == null) return TypedResults.NotFound(new { error = "File not found" });
-
-            if (svc.Storage.IsRemote)
-            {
-                // The blob store is private, so the browser can't fetch a.Url directly (no auth
-                // header on a redirected request) — proxy the bytes through the server instead.
-                var stream = await svc.Storage.OpenReadAsync(a.StoragePath);
-                if (stream == null) return TypedResults.NotFound(new { error = "File missing in storage" });
-                ctx.Response.Headers.CacheControl = "public, max-age=31536000, immutable";
-                return TypedResults.Stream(stream, a.ContentType, enableRangeProcessing: false);
-            }
 
             var local = (LocalAttachmentStorage)svc.Storage;
             var abs = local.GetAbsolutePath(a.StoragePath);

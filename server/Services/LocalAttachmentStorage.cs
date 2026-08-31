@@ -11,8 +11,6 @@ public class LocalAttachmentStorage : IAttachmentStorage
         _cfg = cfg;
     }
 
-    public bool IsRemote => false;
-
     public string StorageRoot => _cfg["Storage:Root"] ?? "App_Data/files";
 
     public string AbsoluteRoot => Path.Combine(_env.ContentRootPath, StorageRoot);

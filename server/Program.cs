@@ -16,18 +16,11 @@ Directory.CreateDirectory(Path.Combine(builder.Environment.ContentRootPath, stor
 // EF Core SQL Server
 builder.Services.AddDbContext<AppDbContext>(o => o.UseSqlServer(connStr));
 
-// Storage provider: "Local" (default) writes to disk; "VercelBlob" uploads to Vercel Blob.
+// Storage provider: "Local" (default) writes to disk under Storage:Root.
 var storageProvider = builder.Configuration["Storage:Provider"] ?? "Local";
-if (string.Equals(storageProvider, "VercelBlob", StringComparison.OrdinalIgnoreCase))
-{
-    builder.Services.Configure<VercelBlobOptions>(builder.Configuration.GetSection(VercelBlobOptions.SectionName));
-    builder.Services.AddHttpClient<VercelBlobAttachmentStorage>();
-    builder.Services.AddScoped<IAttachmentStorage, VercelBlobAttachmentStorage>();
-}
-else
-{
-    builder.Services.AddScoped<IAttachmentStorage, LocalAttachmentStorage>();
-}
+if (!string.Equals(storageProvider, "Local", StringComparison.OrdinalIgnoreCase))
+    throw new InvalidOperationException($"Unknown Storage:Provider '{storageProvider}'. Only 'Local' is supported.");
+builder.Services.AddScoped<IAttachmentStorage, LocalAttachmentStorage>();
 
 builder.Services.AddScoped<FolderService>();
 builder.Services.AddScoped<NoteService>();
