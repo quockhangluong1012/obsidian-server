@@ -562,7 +562,7 @@ function NotePreview({ md, pastedFigs }: { md: string; pastedFigs: { name: strin
   const [figLightbox, setFigLightbox] = useState<string | null>(null)
 
   return (
-    <div className="prose-measure max-w-[36em] md:max-w-[38em] mx-auto px-5 md:px-10 py-8 md:py-12 pb-32">
+    <div className="prose-measure max-w-[42em] md:max-w-[44em] mx-auto px-4 md:px-6 py-6 md:py-8 pb-32">
       <article
         ref={articleRef}
         onClick={onArticleClick}

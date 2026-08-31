@@ -79,7 +79,7 @@ export function SidebarBody() {
         </button>
       </div>
 
-      <div className="flex items-center gap-1 px-2.5 pb-2.5 shrink-0">
+      <div className="flex items-center gap-1 px-3 pb-2.5 shrink-0">
         <button
           onClick={() => { s.startDraft('note'); s.setView('reading') }}
           className="tap flex items-center gap-1.5 h-11 md:h-8 px-3 rounded-[8px] md:rounded-[6px] bg-[var(--pri)] text-[var(--priC)] text-[14px] md:text-[12.5px] font-medium tracking-[0.02em]"
@@ -136,7 +136,7 @@ export function SidebarBody() {
           s.setOver(null); s.setDrag(null)
           s.moveNode(d.id, d.kind, 'root', d.name, 'Vault')
         }}
-        className="sidebar-scroll flex-1 min-h-0 overflow-y-auto overscroll-contain px-2 pb-5 rounded-lg"
+        className="sidebar-scroll flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 pb-5 rounded-lg"
         style={{ boxShadow: !isTouchDevice && s.over === 'root' ? `inset 0 0 0 2px var(--pri)` : 'none', WebkitOverflowScrolling: 'touch' as any, touchAction: 'pan-y' as any }}
       >
         {rows}
@@ -168,9 +168,9 @@ function buildRows(s: VaultState, hoveredId: string | null, setHoveredId: (id: s
     out.push(
       <div key={key} className="flex flex-col gap-1 py-0.5 pb-1.5">
         <div
-          className="flex items-center gap-2 h-12 md:h-[30px] rounded-[8px] md:rounded-[6px] pr-1.5 bg-[var(--bg)] border"
+          className="flex items-center gap-2.5 h-12 md:h-[32px] rounded-[8px] md:rounded-[6px] pr-2 bg-[var(--bg)] border"
           style={{
-            paddingLeft: 6 + depth * step,
+            paddingLeft: 10 + depth * step,
             borderColor: d.error ? 'var(--warn)' : 'var(--pri)',
             boxShadow: `0 0 0 3px ${d.error ? 'rgba(194,65,12,.14)' : 'var(--sel)'}`,
             paddingBottom: 5,
@@ -197,10 +197,10 @@ function buildRows(s: VaultState, hoveredId: string | null, setHoveredId: (id: s
           />
         </div>
         <div
-          className="flex items-center gap-1.5 text-[12px] md:text-[11.5px]"
-          style={{ paddingLeft: 6 + depth * step, color: d.error ? 'var(--warn)' : 'var(--tx2)',
-            paddingBottom: 5, fontSize: 12
-           }}
+           className="flex items-center gap-1.5 text-[12px] md:text-[11.5px]"
+           style={{ paddingLeft: 10 + depth * step, color: d.error ? 'var(--warn)' : 'var(--tx2)',
+             paddingBottom: 5, fontSize: 12
+            }}
         >
           <span className="material-symbols-rounded text-[15px] md:text-[14px]">{d.error ? 'error' : 'keyboard_return'}</span>
           {d.error || 'Enter để lưu · Esc để huỷ'}
@@ -294,9 +294,9 @@ function buildRows(s: VaultState, hoveredId: string | null, setHoveredId: (id: s
             s.setDrag(null); s.setOver(null)
             s.moveNode(dd.id, dd.kind, n.id, dd.name, n.name)
           } : undefined}
-          className="tap flex items-center gap-2 md:gap-[5px] h-12 md:h-[30px] rounded-[8px] md:rounded-[6px] cursor-pointer pr-2 select-none"
+          className="tap flex items-center gap-2.5 md:gap-2 h-12 md:h-[32px] rounded-[8px] md:rounded-[6px] cursor-pointer pr-3 select-none"
           style={{
-            paddingLeft: 6 + depth * step,
+            paddingLeft: 10 + depth * step,
             background: active
               ? 'var(--sel)'
               : marked
@@ -338,8 +338,8 @@ function buildRows(s: VaultState, hoveredId: string | null, setHoveredId: (id: s
       out.push(
         <div
           key={`${parentId}-empty`}
-          className="py-1 pr-2 text-xs text-[var(--tx2)] opacity-80"
-          style={{ paddingLeft: 6 + depth * step }}
+          className="py-1.5 pr-2 text-xs text-[var(--tx2)] opacity-80"
+          style={{ paddingLeft: 10 + depth * step }}
         >
           Thư mục trống
         </div>,

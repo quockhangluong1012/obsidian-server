@@ -294,8 +294,9 @@ button, [role="button"], .tap {
 .md-body th, .md-body td { border: 1px solid var(--bd); padding: 10px 14px; text-align: left; }
 .md-body th { background: var(--surf); font-weight: 600; position: sticky; top: 0; }
 
-/* Prose measure — optimal 65-70ch */
-.prose-measure { max-width: 36em; margin-inline: auto; }
+/* Prose measure — optimal 65-75ch, rộng hơn để tránh compact */
+.prose-measure { max-width: 42em; margin-inline: auto; }
+@media (min-width: 768px) { .prose-measure { max-width: 44em; } }
 
 /* Lightbox */
 .lightbox-backdrop { background: rgba(18,20,38,.82); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
