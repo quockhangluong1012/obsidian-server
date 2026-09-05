@@ -6,9 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "generate:assets": "node scripts/generate-capacitor-assets.mjs"
   },
   "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
     "@tailwindcss/vite": "^4.3.3",
     "@types/dompurify": "^3.0.5",
     "@types/react": "^19.2.18",
@@ -16,11 +18,18 @@
     "@vitejs/plugin-react": "^6.1.1",
     "autoprefixer": "^10.5.4",
     "postcss": "^8.5.26",
+    "sharp": "^0.35.4",
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.2",
     "vite": "^8.2.2"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.1",
+    "@capacitor/cli": "^8.5.1",
+    "@capacitor/core": "^8.5.1",
+    "@capacitor/ios": "^8.5.1",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.3",
     "@sentry/react": "^10.71.0",
     "@vercel/analytics": "^2.0.1",
     "@vercel/speed-insights": "^2.0.0",
@@ -30,5 +39,9 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "zustand": "^5.0.15"
+  },
+  "allowScripts": {
+    "sharp@0.35.4": true,
+    "sharp@0.32.6": true
   }
 }

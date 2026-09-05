@@ -30,7 +30,7 @@ builder.Services.AddScoped<ReadingTrackingService>();
 
 builder.Services.AddCors(opt =>
 {
-    opt.AddPolicy("vite", p => p.WithOrigins("http://localhost:5173", "http://127.0.0.1:5173", "https://client-psi-two-14.vercel.app")
+    opt.AddPolicy("vite", p => p.WithOrigins("http://localhost:5173", "http://127.0.0.1:5173", "https://client-psi-two-14.vercel.app", "app://obsidianvault", "capacitor://localhost", "http://localhost")
         .AllowAnyMethod().AllowAnyHeader().AllowCredentials());
 });
 
