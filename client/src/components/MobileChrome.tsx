@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useVault } from '../store/useVault'
 import { useViewport } from '../hooks/useViewport'
 
@@ -8,6 +8,45 @@ export function TopBar() {
   const s = useVault()
   const { isPhone } = useViewport()
   const [aaOpen, setAaOpen] = useState(false)
+  const headerRef = useRef<HTMLElement | null>(null)
+
+  // Auto-hide the bar while scrolling down through a note, reveal on scroll-up
+  // or near the top — keeps chrome out of the reading area most of the time.
+  // Driven imperatively via the ref (no React state) so it never re-renders
+  // the tree on scroll.
+  useEffect(() => {
+    if (!isPhone) return
+    const el = document.getElementById('main-scroll')
+    const header = headerRef.current
+    if (!el || !header) return
+    let lastY = el.scrollTop
+    let hidden = false
+    let ticking = false
+    const setHidden = (next: boolean) => {
+      if (next === hidden) return
+      hidden = next
+      header.style.height = next ? '0px' : 'calc(var(--bar-h) + var(--safe-t))'
+      header.style.paddingTop = next ? '0px' : 'var(--safe-t)'
+      header.style.opacity = next ? '0' : '1'
+      header.toggleAttribute('inert', next)
+    }
+    const onScroll = () => {
+      if (ticking) return
+      ticking = true
+      requestAnimationFrame(() => {
+        const y = el.scrollTop
+        const delta = y - lastY
+        if (y <= 12) setHidden(false)
+        else if (delta > 8) setHidden(true)
+        else if (delta < -8) setHidden(false)
+        lastY = y
+        ticking = false
+      })
+    }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => el.removeEventListener('scroll', onScroll)
+  }, [isPhone])
+
   if (!isPhone) return null
 
   const cur = s.openTabs[s.tab] ?? s.openTabs[0]
@@ -16,7 +55,8 @@ export function TopBar() {
   return (
     <>
       <header
-        className="grid grid-cols-[auto_1fr_auto] items-center gap-2 shrink-0 px-2 bg-[var(--bg)]/92 backdrop-blur border-b border-[var(--bd)] supports-[backdrop-filter]:bg-[var(--bg)]/85"
+        ref={headerRef}
+        className="grid grid-cols-[auto_1fr_auto] items-center gap-2 shrink-0 px-2 bg-[var(--bg)]/92 backdrop-blur border-b border-[var(--bd)] supports-[backdrop-filter]:bg-[var(--bg)]/85 overflow-hidden transition-all duration-200 ease-out"
         style={{ height: 'calc(var(--bar-h) + var(--safe-t))', paddingTop: 'var(--safe-t)' }}
       >
         <div className="flex items-center">
@@ -77,11 +117,11 @@ function AaSheet({ onClose }: { onClose: () => void }) {
           <div className="flex flex-col gap-2">
             <div className="text-[11px] tracking-[0.08em] uppercase text-[var(--tx2)]">Cỡ chữ</div>
             <div className="flex items-center gap-2">
-              <button onClick={() => s.setFontScale(Math.max(0.9, +(s.fontScale - 0.05).toFixed(2)))} className="grid place-items-center w-11 h-11 rounded-full border border-[var(--bd)] text-[var(--tx)]">A-</button>
+              <button onClick={() => s.setFontScale(Math.max(0.85, +(s.fontScale - 0.1).toFixed(2)))} className="grid place-items-center w-11 h-11 rounded-full border border-[var(--bd)] text-[var(--tx)]">A-</button>
               <div className="flex-1 h-2 rounded-full bg-[var(--surf)] overflow-hidden">
-                <div className="h-full bg-[var(--pri)]" style={{ width: `${((s.fontScale - 0.9)/0.25)*100}%` }} />
+                <div className="h-full bg-[var(--pri)]" style={{ width: `${((s.fontScale - 0.85)/0.75)*100}%` }} />
               </div>
-              <button onClick={() => s.setFontScale(Math.min(1.15, +(s.fontScale + 0.05).toFixed(2)))} className="grid place-items-center w-11 h-11 rounded-full border border-[var(--bd)] text-[var(--tx)]">A+</button>
+              <button onClick={() => s.setFontScale(Math.min(1.6, +(s.fontScale + 0.1).toFixed(2)))} className="grid place-items-center w-11 h-11 rounded-full border border-[var(--bd)] text-[var(--tx)]">A+</button>
             </div>
             <div className="text-[11px] text-[var(--tx2)] text-center">{Math.round(s.fontScale*18)}px · {s.fontScale===1 ? 'Mặc định' : s.fontScale<1 ? 'Nhỏ' : 'Lớn'}</div>
           </div>

@@ -10,6 +10,7 @@ public class AppDbContext : DbContext
     public DbSet<Folder> Folders => Set<Folder>();
     public DbSet<Note> Notes => Set<Note>();
     public DbSet<Attachment> Attachments => Set<Attachment>();
+    public DbSet<ReadingSession> ReadingSessions => Set<ReadingSession>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -44,6 +45,16 @@ public class AppDbContext : DbContext
             e.HasIndex(x => x.NoteId);
             e.HasOne(x => x.Folder).WithMany().HasForeignKey(x => x.FolderId).OnDelete(DeleteBehavior.SetNull);
             e.HasOne(x => x.Note).WithMany().HasForeignKey(x => x.NoteId).OnDelete(DeleteBehavior.SetNull);
+        });
+        b.Entity<ReadingSession>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.Property(x => x.NoteId).IsRequired().HasMaxLength(64);
+            e.HasIndex(x => x.NoteId);
+            e.HasIndex(x => x.EndedAt);
+            e.HasIndex(x => x.StartedAt);
+            e.HasOne(x => x.Note).WithMany().HasForeignKey(x => x.NoteId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 

@@ -49,6 +49,13 @@ export function SidebarBody() {
           <span className="material-symbols-rounded text-[19px]">search</span>
         </button>
         <button
+          onClick={() => s.setDashboardOpen(true)}
+          title="Thời gian đọc"
+          className="tap grid place-items-center w-8 h-8 rounded-full bg-transparent text-[var(--tx2)] hover:bg-[var(--hov)] hover:text-[var(--pri)]"
+        >
+          <span className="material-symbols-rounded text-[19px]">monitoring</span>
+        </button>
+        <button
           onClick={() => s.lockVault()}
           title="Khoá vault"
           className="tap grid place-items-center w-8 h-8 rounded-full bg-transparent text-[var(--tx2)] hover:bg-[var(--hov)] hover:text-[var(--pri)]"
@@ -70,6 +77,13 @@ export function SidebarBody() {
       >
         <span className="material-symbols-rounded text-[22px] text-[var(--pri)]">folder_open</span>
         <span className="font-display text-[18px] font-semibold flex-1">Obsidian Vault</span>
+        <button
+          onClick={() => { s.setDashboardOpen(true); s.setDrawer(false) }}
+          className="tap grid place-items-center w-11 h-11 rounded-full text-[var(--tx2)]"
+          aria-label="Thời gian đọc"
+        >
+          <span className="material-symbols-rounded text-[22px]">monitoring</span>
+        </button>
         <button
           onClick={() => s.lockVault()}
           className="tap grid place-items-center w-11 h-11 rounded-full text-[var(--tx2)]"

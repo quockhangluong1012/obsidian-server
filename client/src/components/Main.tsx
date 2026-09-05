@@ -1,6 +1,6 @@
 import { useRef, useEffect, useMemo, useState, useCallback } from 'react'
-import { useVault, getChildrenLive } from '../store/useVault'
-import type { VaultState } from '../store/useVault'
+import { useVault, getChildrenLive, adjacentNotes } from '../store/useVault'
+import type { VaultState, AdjacentNote } from '../store/useVault'
 import { useViewport } from '../hooks/useViewport'
 import { renderMarkdown } from '../lib/markdown'
 import { SvgLightbox } from './SvgLightbox'
@@ -35,18 +35,26 @@ export function Main() {
 
   const livePath = hasTab ? pathTo(cur.id, s) : []
   const crumbNames = isNew ? livePath.slice(0, -1) : livePath
+  const adjacent = isRealNote ? adjacentNotes(cur.id, s) : { prev: null, next: null }
 
   // fetch note content when active changes
   useEffect(() => {
     if (isRealNote) s.fetchNote(cur.id)
   }, [cur.id, isRealNote])
 
+  // reset scroll position to the top whenever the active tab/note changes
+  // (e.g. navigating to the next/previous chapter should start reading from the top)
+  useEffect(() => {
+    const el = document.getElementById('main-scroll')
+    if (el) el.scrollTop = 0
+  }, [cur.id])
+
   const cached = s.noteCache[cur.id]
   const mdValue = s.md ?? cached?.content ?? ''
   const pastedFigs = s.assets.filter((a) => a.note === cur.id)
 
-  const showPreview = isRealNote && s.mode === 'preview'
-  const showEditor = isRealNote && s.mode === 'edit'
+  const showPreview = isRealNote && (isPhone || s.mode === 'preview')
+  const showEditor = isRealNote && !isPhone && s.mode === 'edit'
   const showNew = isNew
   const showAsset = isAsset
 
@@ -63,13 +71,14 @@ export function Main() {
           crumbNames={crumbNames}
           onStyle={onStyle}
           offStyle={offStyle}
+          adjacent={adjacent}
         />
       )}
 
-      <div id="main-scroll" className="flex-1 min-h-0 overflow-y-auto overscroll-contain relative scroll-pt-16" style={{ paddingBottom: isPhone && (showPreview || showEditor) ? '96px' : undefined }}>
+      <div id="main-scroll" className="flex-1 min-h-0 overflow-y-auto overscroll-contain relative scroll-pt-16">
         {isPhone && <ReadingHairline />}
         {!hasTab && (s.treeLoading ? <LoadingState /> : <EmptyState />)}
-        {showPreview && <NotePreview md={mdValue} pastedFigs={pastedFigs} />}
+        {showPreview && <NotePreview md={mdValue} pastedFigs={pastedFigs} adjacent={adjacent} />}
         {showEditor && (
           <EditorSurface
             mdRef={mdRef}
@@ -80,37 +89,12 @@ export function Main() {
           />
         )}
         {showNew && (
-          <NewNoteSurface cur={cur} livePath={livePath} isPhone={isPhone} onStartEdit={() => s.setMode('edit')} />
+          <NewNoteSurface cur={cur} livePath={livePath} isPhone={isPhone} />
         )}
         {showAsset && <AssetArticle assetId={cur.id} />}
       </div>
 
       {!isPhone && <DesktopStatusBar />}
-
-      {isPhone && (showPreview || showEditor) && (
-        <div className="pointer-events-none fixed left-1/2 -translate-x-1/2 z-20 flex justify-center" style={{ bottom: 'calc(14px + var(--safe-b))' }}>
-          <div className="pointer-events-auto flex p-1 gap-1 rounded-full bg-[var(--bg)] border border-[var(--bd)] shadow-[0_8px_28px_rgba(16,18,40,.22)] backdrop-blur supports-[backdrop-filter]:bg-[var(--bg)]/90">
-            <button
-              onClick={() => s.setMode('edit')}
-              className="tap flex items-center gap-1.5 h-9 px-4 rounded-full text-[13px] font-medium transition-colors"
-              style={s.mode === 'edit' ? onStyle : offStyle}
-              aria-pressed={s.mode === 'edit'}
-            >
-              <span className="material-symbols-rounded text-[18px]">edit_note</span>
-              Sửa
-            </button>
-            <button
-              onClick={() => s.setMode('preview')}
-              className="tap flex items-center gap-1.5 h-9 px-4 rounded-full text-[13px] font-medium transition-colors"
-              style={s.mode === 'preview' ? onStyle : offStyle}
-              aria-pressed={s.mode === 'preview'}
-            >
-              <span className="material-symbols-rounded text-[18px]">visibility</span>
-              Đọc
-            </button>
-          </div>
-        </div>
-      )}
     </main>
   )
 }
@@ -141,6 +125,7 @@ function DesktopTopChrome({
   crumbNames,
   onStyle,
   offStyle,
+  adjacent,
 }: {
   cur: { id: string; title: string }
   isNew: boolean
@@ -148,6 +133,7 @@ function DesktopTopChrome({
   crumbNames: string[]
   onStyle: React.CSSProperties
   offStyle: React.CSSProperties
+  adjacent: { prev: AdjacentNote | null; next: AdjacentNote | null }
 }) {
   const s = useVault()
   return (
@@ -183,10 +169,20 @@ function DesktopTopChrome({
         </button>
       </div>
       <div className="flex items-center gap-3 h-12 shrink-0 px-4 border-b border-[var(--bd)] overflow-hidden">
-        <button className="grid place-items-center w-[30px] h-[30px] shrink-0 rounded-full bg-transparent text-[var(--tx2)] hover:bg-[var(--hov)]">
+        <button
+          onClick={() => s.goToAdjacentNote('prev')}
+          disabled={!adjacent.prev}
+          title={adjacent.prev ? `Note trước: ${adjacent.prev.name}` : 'Không có note trước trong thư mục này'}
+          className="grid place-items-center w-[30px] h-[30px] shrink-0 rounded-full bg-transparent text-[var(--tx2)] hover:bg-[var(--hov)] disabled:opacity-35 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+        >
           <span className="material-symbols-rounded text-[19px]">arrow_back</span>
         </button>
-        <button className="grid place-items-center w-[30px] h-[30px] shrink-0 rounded-full bg-transparent text-[var(--tx2)] hover:bg-[var(--hov)]">
+        <button
+          onClick={() => s.goToAdjacentNote('next')}
+          disabled={!adjacent.next}
+          title={adjacent.next ? `Note sau: ${adjacent.next.name}` : 'Không có note sau trong thư mục này'}
+          className="grid place-items-center w-[30px] h-[30px] shrink-0 rounded-full bg-transparent text-[var(--tx2)] hover:bg-[var(--hov)] disabled:opacity-35 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+        >
           <span className="material-symbols-rounded text-[19px]">arrow_forward</span>
         </button>
         <div className="flex-1 min-w-[8em] flex items-center gap-1.5 text-[12.5px] text-[var(--tx2)] overflow-hidden whitespace-nowrap">
@@ -289,12 +285,10 @@ function NewNoteSurface({
   cur,
   livePath,
   isPhone,
-  onStartEdit,
 }: {
   cur: { id: string; title: string }
   livePath: string[]
   isPhone: boolean
-  onStartEdit: () => void
 }) {
   return (
     <div className="max-w-[760px] mx-auto px-5 md:px-10 py-6 md:py-12 pb-32">
@@ -313,13 +307,10 @@ function NewNoteSurface({
         <span className="pl-2">Bắt đầu viết bằng Markdown. Nội dung tự động lưu.</span>
       </div>
       {isPhone && (
-        <button
-          onClick={onStartEdit}
-          className="tap mt-5 inline-flex items-center gap-2 h-11 px-5 rounded-full bg-[var(--pri)] text-[var(--priC)] font-medium"
-        >
-          <span className="material-symbols-rounded text-[18px]">edit_note</span>
-          Bắt đầu viết
-        </button>
+        <div className="mt-5 inline-flex items-center gap-2 text-[13px] text-[var(--tx2)]">
+          <span className="material-symbols-rounded text-[18px]">computer</span>
+          Mở trên máy tính để viết nội dung
+        </div>
       )}
     </div>
   )
@@ -522,9 +513,15 @@ function ReadingHairline() {
   useEffect(() => {
     const el = document.getElementById('main-scroll')
     if (!el) return
+    let ticking = false
     const onScroll = () => {
-      const max = el.scrollHeight - el.clientHeight
-      setW(max > 0 ? (el.scrollTop / max) * 100 : 0)
+      if (ticking) return
+      ticking = true
+      requestAnimationFrame(() => {
+        const max = el.scrollHeight - el.clientHeight
+        setW(max > 0 ? (el.scrollTop / max) * 100 : 0)
+        ticking = false
+      })
     }
     el.addEventListener('scroll', onScroll, { passive: true })
     onScroll()
@@ -537,7 +534,7 @@ function ReadingHairline() {
   )
 }
 
-function NotePreview({ md, pastedFigs }: { md: string; pastedFigs: { name: string; url: string; path: string; folder: string }[] }) {
+function NotePreview({ md, pastedFigs, adjacent }: { md: string; pastedFigs: { name: string; url: string; path: string; folder: string }[]; adjacent: { prev: AdjacentNote | null; next: AdjacentNote | null } }) {
   const s = useVault()
   const html = useMemo(() => renderMarkdown(md), [md])
   const articleRef = useRef<HTMLDivElement>(null)
@@ -562,7 +559,7 @@ function NotePreview({ md, pastedFigs }: { md: string; pastedFigs: { name: strin
   const [figLightbox, setFigLightbox] = useState<string | null>(null)
 
   return (
-    <div className="prose-measure max-w-[42em] md:max-w-[44em] mx-auto px-4 md:px-6 py-6 md:py-8 pb-32">
+    <div className="prose-measure max-w-[42em] md:max-w-[44em] mx-auto px-5 md:px-6 py-6 md:py-8 pb-32">
       <article
         ref={articleRef}
         onClick={onArticleClick}
@@ -594,7 +591,40 @@ function NotePreview({ md, pastedFigs }: { md: string; pastedFigs: { name: strin
       ))}
       <SvgLightbox src={lightbox?.src} inlineSvg={lightbox?.inlineSvg} alt={lightbox?.alt} open={!!lightbox} onClose={() => setLightbox(null)} />
       <SvgLightbox src={figLightbox || undefined} alt="Ảnh đính kèm" open={!!figLightbox} onClose={() => setFigLightbox(null)} />
+      <ChapterNav adjacent={adjacent} />
     </div>
+  )
+}
+
+function ChapterNav({ adjacent }: { adjacent: { prev: AdjacentNote | null; next: AdjacentNote | null } }) {
+  const s = useVault()
+  const { prev, next } = adjacent
+  if (!prev && !next) return null
+  return (
+    <nav className="mt-10 pt-6 border-t border-[var(--bd)] flex items-stretch gap-3">
+      <button
+        onClick={() => prev && s.openNote(prev.id)}
+        disabled={!prev}
+        className="flex-1 flex items-center gap-2.5 min-w-0 p-3.5 rounded-xl border border-[var(--bd)] bg-[var(--surf)] text-left hover:bg-[var(--hov)] disabled:opacity-35 disabled:cursor-not-allowed disabled:hover:bg-[var(--surf)]"
+      >
+        <span className="material-symbols-rounded text-[20px] shrink-0 text-[var(--tx2)]">arrow_back</span>
+        <span className="min-w-0 overflow-hidden">
+          <span className="block text-[11px] uppercase tracking-wide text-[var(--tx2)]">Trước</span>
+          <span className="block truncate text-[14px] font-medium text-[var(--tx)]">{prev?.name ?? '—'}</span>
+        </span>
+      </button>
+      <button
+        onClick={() => next && s.openNote(next.id)}
+        disabled={!next}
+        className="flex-1 flex items-center justify-end gap-2.5 min-w-0 p-3.5 rounded-xl border border-[var(--bd)] bg-[var(--surf)] text-right hover:bg-[var(--hov)] disabled:opacity-35 disabled:cursor-not-allowed disabled:hover:bg-[var(--surf)]"
+      >
+        <span className="min-w-0 overflow-hidden">
+          <span className="block text-[11px] uppercase tracking-wide text-[var(--tx2)]">Tiếp theo</span>
+          <span className="block truncate text-[14px] font-medium text-[var(--tx)]">{next?.name ?? '—'}</span>
+        </span>
+        <span className="material-symbols-rounded text-[20px] shrink-0 text-[var(--tx2)]">arrow_forward</span>
+      </button>
+    </nav>
   )
 }
 

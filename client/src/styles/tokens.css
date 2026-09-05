@@ -69,9 +69,6 @@
 }
 
 html { -webkit-text-size-adjust: 100%; scrollbar-gutter: stable; }
-@media (max-width: 640px) {
-  html { font-size: 17px; }
-}
 body {
   margin: 0;
   font-family: var(--font-sans);
@@ -79,6 +76,7 @@ body {
   line-height: 1.75;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-synthesis: none;
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior: none;
   background: var(--bg);

@@ -2,18 +2,18 @@
 
 Web app ghi chú markdown self-hosted, dùng cho **một người**, thay thế việc đồng bộ Obsidian qua file bằng một server duy nhất truy cập từ nhiều thiết bị.
 
-> Phiên bản: 1.1 — 2026-08-28
+> Phiên bản: 1.2 — 2026-09-05
 > Trạng thái: Chốt stack `React + ASP.NET Minimal API + SQLite (filesystem cho file)`, sẵn sàng thực thi.
 
 ---
 
 ## 1. Mục tiêu (Goals)
 
-- Tạo, đọc, sửa, xóa nội dung ghi chú **markdown** từ bất kỳ thiết bị nào qua trình duyệt.
+- Tạo, đọc, sửa, xóa nội dung ghi chú **markdown** từ trình duyệt (chỉnh sửa trên desktop; mobile tập trung tối đa cho đọc).
 - Tập trung **hiển thị tốt** nội dung: markdown, **SVG (inline & file)**, **image (paste/upload)**.
 - Note được tổ chức theo **cây thư mục** (giống vault Obsidian).
 - **Desktop**: chỉnh sửa đầy đủ (split source + live preview).
-- **Mobile**: cùng chế độ Chỉnh sửa / Xem trước như desktop (toggle).
+- **Mobile**: chỉ đọc (read-only) — không có chế độ Chỉnh sửa; tạo/sửa nội dung note thực hiện trên desktop.
 - Dữ liệu tập trung **1 file SQLite** (`obsidian.db`) + thư mục `data/files` cho ảnh/SVG, dễ backup.
 - Cài được như **PWA** (add to home screen + xem offline note đã xem).
 
@@ -37,7 +37,7 @@ Web app ghi chú markdown self-hosted, dùng cho **một người**, thay thế 
 | F-07 | Upload / paste ảnh & SVG → lưu disk → chèn link vào note | Cao |
 | F-08 | Hiển thị markdown chuẩn + code highlight + bảng + toán (KaTeX) + sơ đồ (Mermaid) | Cao |
 | F-09 | Hiển thị **inline SVG** (raw HTML) an toàn | Cao |
-| F-10 | Mobile: cùng chế độ Chỉnh sửa / Xem trước như desktop | Cao |
+| F-10 | Mobile: chỉ chế độ đọc (read-only), không có editor | Cao |
 | F-11 | PWA: cài màn hình chính, offline cache note đã xem | Trung bình |
 | F-12 | Export note ra `.md` | Thấp |
 | F-13 | Backup file `.db` + thư mục `data/files` (thủ công/script) | Trung bình |
@@ -50,7 +50,7 @@ Web app ghi chú markdown self-hosted, dùng cho **một người**, thay thế 
 ### 3.2 Phi chức năng
 - 10.000 note: tìm kiếm & mở note nhanh (SQLite/FTS5 đáp ứng thoải mái).
 - Single-user → không cần lo ghi đồng thời; SQLite `WAL` mode.
-- Mobile: không nạp CodeMirror khi ở preview, ảnh/svg `max-width:100%`, bảng/code scroll ngang.
+- Mobile: chỉ chế độ đọc, không nạp editor/textarea, ảnh/svg `max-width:100%`, bảng/code scroll ngang.
 
 ---
 
@@ -81,7 +81,7 @@ Web app ghi chú markdown self-hosted, dùng cho **một người**, thay thế 
 ```
 Browser (React SPA - Vite)
   ├─ Desktop: Sidebar (cây thư mục) + Main (CodeMirror / preview) + RightPanel
-  ├─ Mobile : cây thư mục + view read-only / edit toggle (CSS media query)
+  ├─ Mobile : cây thư mục + view read-only (không có editor)
   └─ fetch /api/* (JSON) ──> ASP.NET Core Minimal API (Kestrel)
                                 ├─ FolderEndpoints / NoteEndpoints / SearchEndpoints
                                 ├─ FileEndpoints (PhysicalFile, multipart upload)
@@ -215,14 +215,15 @@ Tất cả trả JSON `snake_case` hoặc `camelCase` thống nhất (cấu hìn
 - Autosave: debounce ~800ms sau khi dừng gõ, hoặc save khi blur.
 
 ### 9.2 Mobile (< 768px)
-- Cùng chế độ Chỉnh sửa / Xem trước như desktop (toggle trong thanh công cụ).
+- **Chỉ đọc** — không có chế độ Chỉnh sửa, không render editor/textarea. Mọi note luôn hiển thị dạng preview (markdown đã render).
+- Tạo/sửa nội dung note thực hiện trên desktop; trên mobile vẫn xem, tìm kiếm, và thao tác vị trí (đổi tên/di chuyển/xoá note-folder) qua menu ngữ cảnh (long-press).
 - Điều hướng: **cây thư mục → list note trong folder → view note** (back bằng nút quay lại).
-- Header sticky hiển thị tiêu đề note.
+- Top bar tự ẩn khi cuộn xuống, hiện lại khi cuộn lên hoặc gần đầu trang — tối đa hoá vùng đọc.
 - Panel mục lục/backlinks/tags và command palette hiển thị dạng bottom sheet / toàn màn hình.
 - Responsive:
   - `img, svg { max-width: 100%; height: auto; }`
   - Code block & bảng: `overflow-x: auto` (scroll ngang).
-  - Typography tối ưu touch: font size 16px cho textarea (tránh zoom iOS).
+  - Cỡ chữ đọc chỉnh qua "Aa" (0.85×–1.6× cỡ gốc 18px), lưu riêng theo thiết bị.
 - Phát hiện bằng **CSS media query** làm chính (không dựa user-agent).
 
 ---
@@ -289,6 +290,6 @@ raw markdown
 - Tạo folder lồng 3 cấp, tạo note, paste ảnh + svg, lưu, tắt mở lại vẫn còn (persist trên SQLite + disk).
 - Tìm kiếm cụm từ trong nội dung note trả kết quả nhanh (< 1s với 10k note) qua `GET /api/search`.
 - Desktop: gõ markdown thấy preview cập nhật, code/table/math/mermaid/svg hiển thị đúng.
-- Mobile: mở note render đúng, ảnh/svg không tràn màn hình, code/table scroll ngang, toggle Chỉnh sửa/Xem trước hoạt động.
+- Mobile: mở note render đúng (chỉ đọc, không có chế độ sửa), ảnh/svg không tràn màn hình, code/table scroll ngang, top bar tự ẩn/hiện mượt khi cuộn.
 - PWA: cài ra màn hình chính, bật offline xem được note đã xem.
 - Di chuyển note/attachment trong cây không làm vỡ link `![](/api/files/{id})`.

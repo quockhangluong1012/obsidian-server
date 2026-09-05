@@ -26,6 +26,7 @@ builder.Services.AddScoped<FolderService>();
 builder.Services.AddScoped<NoteService>();
 builder.Services.AddScoped<AttachmentService>();
 builder.Services.AddScoped<SearchService>();
+builder.Services.AddScoped<ReadingTrackingService>();
 
 builder.Services.AddCors(opt =>
 {
@@ -54,6 +55,7 @@ app.MapFolderEndpoints();
 app.MapNoteEndpoints();
 app.MapFileEndpoints();
 app.MapSearchEndpoints();
+app.MapReadingEndpoints();
 
 // Serve Vite built static (client/dist) if exists, else fallback for dev
 var clientDist = Path.Combine(builder.Environment.ContentRootPath, "..", "client", "dist");

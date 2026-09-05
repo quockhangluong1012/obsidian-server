@@ -1,14 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { Sidebar, SidebarBody } from './components/Sidebar'
 import { Main } from './components/Main'
 import { Overlays } from './components/Overlays'
 import { LockScreen } from './components/LockScreen'
 import { TopBar } from './components/MobileChrome'
+import { ReadingDashboard } from './components/ReadingDashboard'
 import { useViewport } from './hooks/useViewport'
+import { useReadingTracker } from './hooks/useReadingTracker'
 import { useVault } from './store/useVault'
 export default function App() {
   const s = useVault()
   const { isPhone } = useViewport()
+  useReadingTracker()
 
   useEffect(() => {
     // initial backend sync
@@ -31,6 +34,11 @@ export default function App() {
         if (s.drawer) s.setDrawer(false)
         return
       }
+      if (!isPhone && e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && s.active) {
+        e.preventDefault()
+        s.goToAdjacentNote(e.key === 'ArrowLeft' ? 'prev' : 'next')
+        return
+      }
       // mobile-friendly back gesture: swipe-right is OS, but browser back is also a key on Android
       if (isPhone && e.key === 'GoBack' as unknown as string) {
         if (s.drawer) s.setDrawer(false)
@@ -38,7 +46,7 @@ export default function App() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [s.palette, s.menu, s.move, s.assetOpen, s.drawer, isPhone])
+  }, [s.palette, s.menu, s.move, s.assetOpen, s.drawer, s.active, isPhone])
 
   const paperVars = s.themeMode === 'paper' && !s.dark ? {
     '--bg': '#FFFBF0',
@@ -70,6 +78,7 @@ export default function App() {
       <LockScreen />
       {isPhone ? <PhoneShell /> : <DesktopShell />}
       <Overlays />
+      <ReadingDashboard />
     </div>
   )
 }
@@ -94,28 +103,6 @@ function PhoneShell() {
         </div>
       </div>
       {s.drawer && <Drawer />}
-    </div>
-  )
-}
-
-function ReadingProgress() {
-  const { isPhone } = useViewport()
-  const [w, setW] = useState(0)
-  useEffect(() => {
-    const el = document.getElementById('main-scroll')
-    if (!el || !isPhone) return
-    const onScroll = () => {
-      const max = el.scrollHeight - el.clientHeight
-      setW(max > 0 ? (el.scrollTop / max) * 100 : 0)
-    }
-    el.addEventListener('scroll', onScroll, { passive: true })
-    onScroll()
-    return () => el.removeEventListener('scroll', onScroll)
-  }, [isPhone])
-  if (!isPhone) return null
-  return (
-    <div className="read-progress-hairline" aria-hidden>
-      <div className="read-progress-hairline-fill" style={{ width: `${w}%` }} />
     </div>
   )
 }

@@ -55,11 +55,13 @@ export type VaultState = {
   // mobile ui
   view: 'library' | 'reading'
   drawer: boolean
+  dashboardOpen: boolean
   // reading prefs
-  fontScale: number // 0.9 .. 1.15 maps to 16..20px base
+  fontScale: number // 0.85 .. 1.6 maps to ~15..29px base
   themeMode: 'light' | 'paper' | 'dark'
   setView: (v: VaultState['view']) => void
   setDrawer: (v: boolean) => void
+  setDashboardOpen: (v: boolean) => void
   setFontScale: (v: number) => void
   setThemeMode: (v: VaultState['themeMode']) => void
   // actions
@@ -71,6 +73,7 @@ export type VaultState = {
   setActive: (id: string) => void
   openNote: (id: string) => void
   openAsset: (id: string) => void
+  goToAdjacentNote: (direction: 'prev' | 'next') => void
   setTab: (i: number) => void
   closeTab: (i: number) => void
   startDraft: (kind: 'folder' | 'note', parent?: string | null) => void
@@ -156,8 +159,9 @@ export const useVault = create<VaultState>((set, get) => ({
   paletteResults: [],
   view: 'reading',
   drawer: false,
-  fontScale: (() => { try { const v = parseFloat(localStorage.getItem('obs-fontScale')||''); return isNaN(v)?1:Math.min(1.15,Math.max(0.9,v)) } catch { return 1 } })(),
-  themeMode: (() => { try { const v = localStorage.getItem('obs-themeMode') as any; return v==='paper'||v==='dark'||v==='light'?v:'light' } catch { return 'light' } })(),
+  dashboardOpen: false,
+  fontScale: (() => { try { const v = parseFloat(localStorage.getItem('obs-fontScale')||''); return isNaN(v)?1:Math.min(1.6,Math.max(0.85,v)) } catch { return 1 } })(),
+  themeMode: (() => { try { const v = localStorage.getItem('obs-themeMode'); return v==='paper'||v==='dark'||v==='light'?v:'paper' } catch { return 'paper' } })(),
   setFontScale: (v) => { try{localStorage.setItem('obs-fontScale',String(v))}catch{}; set({fontScale:v}) },
   setThemeMode: (v) => { try{localStorage.setItem('obs-themeMode',v)}catch{}; set({themeMode:v, dark: v==='dark'}) },
   toggleDark: () => set(s => {
@@ -230,6 +234,13 @@ export const useVault = create<VaultState>((set, get) => ({
       idx = tabs.length - 1
     }
     set({ active: id, openTabs: tabs, tab: idx, palette: false })
+  },
+  goToAdjacentNote: (direction) => {
+    const s = get()
+    if (!s.active) return
+    const { prev, next } = adjacentNotes(s.active, s)
+    const target = direction === 'prev' ? prev : next
+    if (target) s.openNote(target.id)
   },
   setTab: (i) => {
     const t = get().openTabs[i]
@@ -494,6 +505,7 @@ export const useVault = create<VaultState>((set, get) => ({
   },
   setView: (v) => set({ view: v }),
   setDrawer: (v) => set({ drawer: v }),
+  setDashboardOpen: (v) => set({ dashboardOpen: v }),
   loadTree: async () => {
     if (get().treeLoading) return
     set({ treeLoading: true })
@@ -698,6 +710,26 @@ export function findParentLive(id: string, s: VaultState): string | null {
   }
   scan(null)
   return res === undefined ? null : res
+}
+
+export type AdjacentNote = { id: string; name: string }
+
+// Previous/next note within the same folder, ordered the same way the tree
+// displays them (folders, then notes, then assets — each alphabetically).
+// Sibling folders/attachments are skipped: only note-to-note navigation.
+export function adjacentNotes(id: string, s: VaultState): { prev: AdjacentNote | null; next: AdjacentNote | null } {
+  if (!id) return { prev: null, next: null }
+  const parentId = findParentLive(id, s)
+  const parentKey = parentId === null || parentId === 'root' ? null : parentId
+  const siblingNotes = getChildrenLive(parentKey, s).filter((n) => !n.children && !(n as any).asset)
+  const idx = siblingNotes.findIndex((n) => n.id === id)
+  if (idx < 0) return { prev: null, next: null }
+  const prev = idx > 0 ? siblingNotes[idx - 1] : null
+  const next = idx < siblingNotes.length - 1 ? siblingNotes[idx + 1] : null
+  return {
+    prev: prev ? { id: prev.id, name: prev.name } : null,
+    next: next ? { id: next.id, name: next.name } : null,
+  }
 }
 
 export function folderOptionsLive(s: VaultState) {

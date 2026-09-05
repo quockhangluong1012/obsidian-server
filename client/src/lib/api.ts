@@ -57,6 +57,19 @@ export type SearchResultDto = {
   name?: string;
   kind?: string;
 };
+export type ReadingBucketDto = { startUtc: string; endUtc: string; seconds: number };
+export type ReadingSummaryDto = { range: string; totalSeconds: number; buckets: ReadingBucketDto[] };
+export type NoteReadingStatDto = {
+  noteId: string;
+  title: string;
+  folderId: string | null;
+  path: string;
+  totalSeconds: number;
+  sessionCount: number;
+  lastReadAt: string;
+  active: boolean;
+};
+export type ReadingRange = 'today' | '7d' | '30d' | '1y' | 'all';
 
 // ---- Folders ----
 export const folderApi = {
@@ -129,4 +142,33 @@ export const fileApi = {
 export const searchApi = {
   search: (q: string, limit = 20) => req<SearchResultDto[]>(`/api/search?q=${encodeURIComponent(q)}&limit=${limit}`),
   palette: (q: string) => req<SearchResultDto[]>(`/api/palette?q=${encodeURIComponent(q)}`),
+};
+
+// ---- Reading time tracking ----
+
+export const readingApi = {
+  start: (noteId: string) =>
+    req<{ id: string; noteId: string; startedAt: string }>('/api/reading/sessions/start', {
+      method: 'POST',
+      body: JSON.stringify({ noteId }),
+    }),
+  heartbeat: (sessionId: string) =>
+    req<{ id: string; durationSeconds: number }>(`/api/reading/sessions/${sessionId}/heartbeat`, { method: 'POST' }),
+  end: (sessionId: string) =>
+    req<{ id: string; durationSeconds: number }>(`/api/reading/sessions/${sessionId}/end`, { method: 'POST' }),
+  // Fire-and-forget close that survives page unload (fetch keepalive would still get
+  // cancelled by some browsers; sendBeacon is the documented way to do this).
+  endBeacon: (sessionId: string) => {
+    try {
+      navigator.sendBeacon(apiUrl(`/api/reading/sessions/${sessionId}/end`));
+    } catch {
+      // best effort only — the server reaps stale sessions on the next start anyway
+    }
+  },
+  summary: (range: ReadingRange) => {
+    let tz = 'UTC';
+    try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { /* fall back to UTC */ }
+    return req<ReadingSummaryDto>(`/api/reading/summary?range=${range}&tz=${encodeURIComponent(tz)}`);
+  },
+  notes: () => req<NoteReadingStatDto[]>('/api/reading/notes'),
 };
