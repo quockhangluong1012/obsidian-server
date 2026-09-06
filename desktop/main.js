@@ -45,13 +45,13 @@ app.whenReady().then(() => {
     return net.fetch(pathToFileURL(filePath).toString())
   })
 
-  Menu.setApplicationMenu(Menu.buildFromTemplate([
-    ...(process.platform === 'darwin' ? [{ role: 'appMenu' }] : []),
-    { role: 'fileMenu' },
-    { role: 'editMenu' },
-    { role: 'viewMenu' },
-    { role: 'windowMenu' },
-  ]))
+  // Menu.setApplicationMenu(Menu.buildFromTemplate([
+  //   ...(process.platform === 'darwin' ? [{ role: 'appMenu' }] : []),
+  //   { role: 'fileMenu' },
+  //   { role: 'editMenu' },
+  //   { role: 'viewMenu' },
+  //   { role: 'windowMenu' },
+  // ]))
 
   createWindow()
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })

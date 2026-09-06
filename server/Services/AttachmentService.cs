@@ -27,6 +27,47 @@ public class AttachmentService
 
     public IAttachmentStorage Storage => _storage;
 
+    /// <summary>Attachments never sit as direct siblings of notes — they always live in an "assets" subfolder of their logical parent folder.</summary>
+    private const string AssetsFolderName = "assets";
+
+    /// <summary>Resolves (creating if needed) the "assets" subfolder under <paramref name="parentFolderId"/>. If <paramref name="parentFolderId"/> already IS an assets folder, returns it unchanged to avoid nesting assets/assets.</summary>
+    private async Task<string> ResolveAssetFolderIdAsync(string? parentFolderId)
+    {
+        if (parentFolderId != null)
+        {
+            var parentName = await _db.Folders.AsNoTracking().Where(f => f.Id == parentFolderId).Select(f => f.Name).FirstOrDefaultAsync();
+            if (parentName != null && string.Equals(parentName, AssetsFolderName, StringComparison.OrdinalIgnoreCase))
+                return parentFolderId;
+        }
+        var existing = await _db.Folders.FirstOrDefaultAsync(f => f.ParentId == parentFolderId && f.Name.ToLower() == AssetsFolderName);
+        if (existing != null) return existing.Id;
+        var created = new Folder { Name = AssetsFolderName, ParentId = parentFolderId };
+        _db.Folders.Add(created);
+        await _db.SaveChangesAsync();
+        return created.Id;
+    }
+
+    /// <summary>One-time (idempotent) fixup for attachments saved before assets-subfolder nesting existed: relocates any attachment sitting directly in a non-assets folder into that folder's "assets" subfolder. Safe to call on every startup — a no-op once every attachment already lives under an "assets" folder.</summary>
+    public async Task NormalizeExistingAttachmentsAsync()
+    {
+        var folderIds = await _db.Attachments.Select(a => a.FolderId).Distinct().ToListAsync();
+        var dirty = false;
+        foreach (var fid in folderIds)
+        {
+            if (fid != null)
+            {
+                var name = await _db.Folders.AsNoTracking().Where(f => f.Id == fid).Select(f => f.Name).FirstOrDefaultAsync();
+                if (name != null && string.Equals(name, AssetsFolderName, StringComparison.OrdinalIgnoreCase))
+                    continue;
+            }
+            var assetsFolderId = await ResolveAssetFolderIdAsync(fid);
+            var rows = await _db.Attachments.Where(a => a.FolderId == fid).ToListAsync();
+            foreach (var a in rows) a.FolderId = assetsFolderId;
+            dirty = dirty || rows.Count > 0;
+        }
+        if (dirty) await _db.SaveChangesAsync();
+    }
+
     public Task<List<Attachment>> ListAsync(string? folderId)
     {
         var q = _db.Attachments.AsNoTracking().AsQueryable();
@@ -50,7 +91,7 @@ public class AttachmentService
         if (targetFolderId != null && targetFolderId != "root" && !await _db.Folders.AnyAsync(x => x.Id == targetFolderId))
             throw new ArgumentException("Target folder not found");
         if (targetFolderId == "root") targetFolderId = null;
-        a.FolderId = targetFolderId;
+        a.FolderId = await ResolveAssetFolderIdAsync(targetFolderId);
         await _db.SaveChangesAsync();
         return a;
     }
@@ -123,6 +164,7 @@ public class AttachmentService
         {
             folderId = await _db.Notes.Where(x => x.Id == noteId).Select(x => x.FolderId).FirstOrDefaultAsync();
         }
+        folderId = await ResolveAssetFolderIdAsync(folderId);
 
         var att = new Attachment
         {

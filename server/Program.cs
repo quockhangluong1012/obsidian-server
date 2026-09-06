@@ -43,6 +43,10 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     await db.MigrateAndSeedAsync();
+    // One-time (idempotent) fixup: relocate any attachment sitting directly beside
+    // notes into an "assets" subfolder of its parent, matching Obsidian's convention.
+    var attachments = scope.ServiceProvider.GetRequiredService<AttachmentService>();
+    await attachments.NormalizeExistingAttachmentsAsync();
 }
 
 app.UseCors("vite");

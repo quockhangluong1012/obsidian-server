@@ -1,8 +1,8 @@
-import { useRef, useEffect, useMemo, useState, useCallback } from 'react'
+import { useRef, useEffect, useMemo, useState, useCallback, Fragment } from 'react'
 import { useVault, getChildrenLive, adjacentNotes } from '../store/useVault'
 import type { VaultState, AdjacentNote } from '../store/useVault'
 import { useViewport } from '../hooks/useViewport'
-import { renderMarkdown } from '../lib/markdown'
+import { renderMarkdown, parseFrontmatter, type FrontmatterValue } from '../lib/markdown'
 import { SvgLightbox } from './SvgLightbox'
 
 const TEXT_ATTACHMENT_MIME = new Set(['application/json', 'text/plain', 'text/markdown', 'text/csv'])
@@ -536,6 +536,7 @@ function ReadingHairline() {
 
 function NotePreview({ md, pastedFigs, adjacent }: { md: string; pastedFigs: { name: string; url: string; path: string; folder: string }[]; adjacent: { prev: AdjacentNote | null; next: AdjacentNote | null } }) {
   const s = useVault()
+  const { data: frontmatter } = useMemo(() => parseFrontmatter(md), [md])
   const html = useMemo(() => renderMarkdown(md), [md])
   const articleRef = useRef<HTMLDivElement>(null)
   const [lightbox, setLightbox] = useState<{ src?: string; inlineSvg?: string; alt?: string } | null>(null)
@@ -560,6 +561,7 @@ function NotePreview({ md, pastedFigs, adjacent }: { md: string; pastedFigs: { n
 
   return (
     <div className="prose-measure max-w-[42em] md:max-w-[44em] mx-auto px-5 md:px-6 py-6 md:py-8 pb-32">
+      <NoteProperties data={frontmatter} />
       <article
         ref={articleRef}
         onClick={onArticleClick}
@@ -593,6 +595,42 @@ function NotePreview({ md, pastedFigs, adjacent }: { md: string; pastedFigs: { n
       <SvgLightbox src={figLightbox || undefined} alt="Ảnh đính kèm" open={!!figLightbox} onClose={() => setFigLightbox(null)} />
       <ChapterNav adjacent={adjacent} />
     </div>
+  )
+}
+
+const FRONTMATTER_LABELS: Record<string, string> = {
+  title: 'Tiêu đề',
+  title_en: 'Tiêu đề gốc',
+  book: 'Sách',
+  chapter: 'Chương',
+  source: 'Nguồn',
+  pages: 'Trang',
+  translated: 'Ngày dịch',
+  tags: 'Thẻ',
+}
+
+function NoteProperties({ data }: { data: Record<string, FrontmatterValue> }) {
+  const entries = Object.entries(data).filter(([, v]) => (Array.isArray(v) ? v.length > 0 : v !== ''))
+  if (entries.length === 0) return null
+  return (
+    <dl className="mb-7 grid grid-cols-[max-content_1fr] gap-x-4 gap-y-2 rounded-xl border border-[var(--bd)] bg-[var(--surf)] px-4 py-3.5 text-[13.5px]">
+      {entries.map(([key, value]) => (
+        <Fragment key={key}>
+          <dt className="whitespace-nowrap font-medium text-[var(--tx2)]">{FRONTMATTER_LABELS[key] ?? key}</dt>
+          <dd className="min-w-0 text-[var(--tx)]">
+            {Array.isArray(value) ? (
+              <span className="flex flex-wrap gap-1.5">
+                {value.map((tag) => (
+                  <span key={tag} className="rounded-md bg-[var(--code)] px-1.5 py-0.5 text-[12px]">{tag}</span>
+                ))}
+              </span>
+            ) : (
+              <span className="break-words">{value}</span>
+            )}
+          </dd>
+        </Fragment>
+      ))}
+    </dl>
   )
 }
 

@@ -1,12 +1,14 @@
 using Microsoft.EntityFrameworkCore;
 using Server.Data;
 using Server.Models;
+using Server.Utils;
 
 namespace Server.Services;
 
 public class FolderService(AppDbContext db)
 {
-    public Task<List<Folder>> ListAsync() => db.Folders.AsNoTracking().OrderBy(x => x.Name).ToListAsync();
+    public async Task<List<Folder>> ListAsync() =>
+        (await db.Folders.AsNoTracking().ToListAsync()).ByNamePrefix(x => x.Name).ToList();
 
     public async Task<Folder> CreateAsync(string name, string? parentId)
     {
@@ -80,7 +82,7 @@ public class FolderService(AppDbContext db)
         // Build tree recursively
         object Build(string? parentId)
         {
-            var children = folders.Where(f => f.ParentId == parentId).OrderBy(f => f.Name).Select(f => new
+            var children = folders.Where(f => f.ParentId == parentId).ByNamePrefix(f => f.Name).Select(f => new
             {
                 id = f.Id,
                 name = f.Name,
@@ -90,7 +92,7 @@ public class FolderService(AppDbContext db)
                 children = Build(f.Id)
             }).ToList<object>();
 
-            var noteNodes = notes.Where(n => n.FolderId == parentId).OrderBy(n => n.Title).Select(n => new
+            var noteNodes = notes.Where(n => n.FolderId == parentId).ByNamePrefix(n => n.Title).Select(n => new
             {
                 id = n.Id,
                 name = n.Title,
@@ -98,7 +100,7 @@ public class FolderService(AppDbContext db)
                 parentId = n.FolderId
             }).ToList<object>();
 
-            var assetNodes = attachments.Where(a => a.FolderId == parentId).OrderBy(a => a.FileName).Select(a => new
+            var assetNodes = attachments.Where(a => a.FolderId == parentId).ByNamePrefix(a => a.FileName).Select(a => new
             {
                 id = a.Id,
                 name = a.FileName,
